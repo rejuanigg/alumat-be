@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block title %}
+{{ object.nombre }}
+{% endblock %}
+
+{% block content %}
+
+<a class="volver" href="{% url 'catalogo:lista' %}">← Volver al catálogo</a>
+<p class="antetitulo">{{ object.categoria }} · {{ object.codigo }}</p>
+<div class="encabezado">
+<h1>{{ object.nombre }}</h1>
+<a class="boton" href="{% url 'catalogo:editar' object.pk %}">Editar producto</a>
+</div>
+<div class="detalle panel">
+<dl>
+<div>
+<dt>Precio</dt>
+<dd>$ {{ object.precio }}</dd>
+</div>
+<div>
+<dt>Stock disponible</dt>
+<dd>{{ object.stock }} unidades</dd>
+</div>
+<div>
+<dt>Última actualización</dt>
+<dd>{{ object.actualizado|date:'d/m/Y H:i' }}</dd>
+</div>
+</dl>
+<h2>Descripción</h2>
+<div class="prosa">{{ object.descripcion|default:'Sin descripción.'|linebreaksbr }}</div>
+<p class="ayuda">Creado por {{ object.creado_por }} · Última edición de {{ object.actualizado_por }}</p>
+</div>
+
+{% if user.is_superuser %}
+<p>
+<a class="enlace-peligro" href="{% url 'catalogo:eliminar' object.pk %}">Eliminar producto</a>
+</p>
+{% endif %}
+
+{% endblock %}

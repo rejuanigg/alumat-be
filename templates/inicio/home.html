@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Inicio
+{% endblock %}
+
+{% block content %}
+
+<p class="antetitulo">Tu espacio de trabajo</p>
+<div class="encabezado">
+<div>
+<h1>Hola, {{ user.first_name|default:user.username }}.</h1>
+<p>Esta es la información de tu organización.</p>
+</div>
+<a class="boton" href="{% url 'catalogo:crear' %}">Agregar producto</a>
+</div>
+<div class="resumen">
+<a href="{% url 'catalogo:lista' %}">
+<span>Productos registrados</span>
+<strong>{{ productos }}</strong>
+</a>
+<a href="{% url 'catalogo:categorias' %}">
+<span>Categorías</span>
+<strong>{{ categorias }}</strong>
+</a>
+{% if user.is_superuser %}
+<a href="{% url 'cuentas:solicitudes' %}">
+<span>Solicitudes pendientes</span>
+<strong>{{ pendientes }}</strong>
+</a>
+{% endif %}
+</div>
+<div class="encabezado">
+<h2>Últimos productos actualizados</h2>
+<a href="{% url 'catalogo:lista' %}">Ver catálogo completo →</a>
+</div>
+<div class="lista-recientes">
+{% for producto in recientes %}
+<a href="{{ producto.get_absolute_url }}">
+<span>
+<strong>{{ producto.nombre }}</strong>
+<small>{{ producto.categoria }} · {{ producto.codigo }}</small>
+</span>
+<span>{{ producto.stock }} unidades</span>
+</a>{% empty %}<div class="vacio">
+<h2>El catálogo está listo para empezar</h2>
+<p>
+{% if user.is_superuser %}
+Creá una categoría y después agregá tu primer producto.
+{% else %}
+Pedile al administrador que cree las categorías para comenzar.
+{% endif %}
+</p>
+<a href="{% url 'catalogo:categorias' %}">Ir a categorías →</a>
+</div>
+{% endfor %}
+</div>
+{% endblock %}

@@ -1,0 +1,82 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Catálogo
+{% endblock %}
+
+{% block content %}
+
+<p class="antetitulo">Información compartida</p>
+<div class="encabezado">
+<div>
+<h1>Catálogo de productos</h1>
+<p>Consultá y actualizá los productos de la organización.</p>
+</div>
+<a class="boton" href="{% url 'catalogo:crear' %}">Agregar producto</a>
+</div>
+<div class="herramientas">
+<form method="get" class="busqueda">
+<label for="buscar">Buscar por nombre o código</label>
+<div>
+<input id="buscar" name="q" value="{{ request.GET.q }}" maxlength="100" type="search">
+<button type="submit">Buscar</button>
+</div>
+</form>
+<a href="{% url 'catalogo:categorias' %}">Gestionar categorías →</a>
+</div>
+
+{% if object_list %}
+<div class="tabla-scroll" tabindex="0" role="region" aria-label="Productos">
+<table>
+<caption>{{ paginator.count }} producto{{ paginator.count|pluralize:'s' }} encontrado{{ paginator.count|pluralize:'s' }}</caption>
+<thead>
+<tr>
+<th scope="col">Producto</th>
+<th scope="col">Categoría</th>
+<th scope="col">Precio</th>
+<th scope="col">Stock</th>
+<th scope="col">Acción</th>
+</tr>
+</thead>
+<tbody>
+{% for p in object_list %}
+<tr>
+<td>
+<a href="{{ p.get_absolute_url }}">
+<strong>{{ p.nombre }}</strong>
+</a>
+<small>{{ p.codigo }}</small>
+</td>
+<td>{{ p.categoria }}</td>
+<td class="numero">$ {{ p.precio }}</td>
+<td class="numero">{{ p.stock }}</td>
+<td>
+<a href="{% url 'catalogo:editar' p.pk %}" aria-label="Editar {{ p.nombre }}">Editar</a>
+</td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% include 'componentes/paginacion.html' %}
+{% else %}
+<div class="vacio">
+<h2>
+{% if request.GET.q %}
+No encontramos coincidencias
+{% else %}
+Todavía no hay productos
+{% endif %}
+</h2>
+<p>
+{% if request.GET.q %}
+Probá con otro nombre o código.
+{% else %}
+Comenzá creando una categoría y un producto.
+{% endif %}
+</p>
+<a href="{% url 'catalogo:lista' %}">Ver todo el catálogo</a>
+</div>
+{% endif %}
+
+{% endblock %}

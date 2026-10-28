@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Confirmar eliminación
+{% endblock %}
+
+{% block content %}
+<section class="form-contenedor panel">
+<p class="antetitulo">Confirmación necesaria</p>
+<h1>Eliminar {{ object }}</h1>
+<p>Esta acción elimina el registro y no se puede deshacer desde el sistema.</p>
+<form method="post">{% csrf_token %}{{ form.non_field_errors }}<div class="acciones">
+<button class="peligro" type="submit">Confirmar eliminación</button>
+<a href="{% url 'catalogo:lista' %}">Cancelar y volver</a>
+</div>
+</form>
+</section>
+{% endblock %}

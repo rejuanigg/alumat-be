@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+
+{% block title %}
+
+{% if object %}
+Editar
+{% else %}
+Agregar
+{% endif %}
+ producto
+{% endblock %}
+
+{% block content %}
+
+<div class="form-contenedor">
+<a class="volver" href="{% url 'catalogo:lista' %}">← Volver al catálogo</a>
+<p class="antetitulo">Catálogo</p>
+<h1>
+{% if object %}
+Editar
+{% else %}
+Agregar
+{% endif %}
+ producto</h1>
+<p>Los cambios estarán disponibles para los usuarios de la organización.</p>
+
+{% if not form.fields.categoria.queryset.exists %}
+<div class="aviso">Primero se necesita una categoría.
+{% if user.is_superuser %}
+<a href="{% url 'catalogo:categoria_crear' %}">Crear categoría</a>
+{% else %}
+Solicitala al administrador.
+{% endif %}
+</div>
+{% endif %}
+
+<form method="post" class="panel">{% csrf_token %}{% include 'componentes/formulario.html' %}<div class="acciones">
+<button type="submit">Guardar producto</button>
+<a href="{% url 'catalogo:lista' %}">Cancelar</a>
+</div>
+</form>
+</div>
+{% endblock %}

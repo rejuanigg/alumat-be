@@ -1,0 +1,34 @@
+{% extends 'base.html' %}
+
+{% block title %}
+Categorías
+{% endblock %}
+
+{% block content %}
+
+<a class="volver" href="{% url 'catalogo:lista' %}">← Volver al catálogo</a>
+<div class="encabezado">
+<div>
+<p class="antetitulo">Organización del catálogo</p>
+<h1>Categorías</h1>
+</div>
+{% if user.is_superuser %}
+<a class="boton" href="{% url 'catalogo:categoria_crear' %}">Agregar categoría</a>
+{% endif %}
+</div>
+<div class="lista-recientes">
+{% for c in object_list %}
+<div class="fila">
+<strong>{{ c.nombre }}</strong>
+{% if user.is_superuser %}
+<span>
+<a href="{% url 'catalogo:categoria_editar' c.pk %}">Editar</a> · <a class="enlace-peligro" href="{% url 'catalogo:categoria_eliminar' c.pk %}">Eliminar</a>
+</span>
+{% endif %}
+</div>{% empty %}<div class="vacio">
+<h2>Todavía no hay categorías</h2>
+<p>El administrador puede agregar la primera para organizar los productos.</p>
+</div>
+{% endfor %}
+</div>{% include 'componentes/paginacion.html' %}
+{% endblock %}
