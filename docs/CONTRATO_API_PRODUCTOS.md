@@ -7,7 +7,7 @@ Sección del contrato de API de ALUMAT correspondiente al Proceso 2: Gestión de
 - **URL base:** `/api/`
 - **Formato:** JSON (`Content-Type: application/json`), con codificación UTF-8.
 - **Nombres de campos:** iguales a los del diccionario de datos (`id_producto`, `id_diseno`, etc.).
-- **Autenticación:** todos los endpoints requieren un usuario autenticado. Si no hay sesión válida, se responde `401`.
+- **Autenticación:** todos los endpoints requieren un usuario autenticado. Se usa la sesión de Django (el mismo login del sitio). Si no hay sesión válida, se responde `403` con `{"detail": "Las credenciales de autenticación no se proveyeron."}`.
 - **Sin borrado físico:** productos y diseños no se eliminan, se desactivan con `activo: false` para conservar el historial. Por eso no existe `DELETE`; si se usa, la API responde `405 Method Not Allowed`.
 - **Fuera de alcance:** no hay atributos ni endpoints de stock, precio ni inventario.
 
@@ -216,8 +216,7 @@ Registro devuelto por `GET /api/disenos/3/`. Su `id_producto` apunta al producto
 | Código | Cuándo |
 |---|---|
 | `400 Bad Request` | datos inválidos |
-| `401 Unauthorized` | sin autenticación |
-| `403 Forbidden` | el usuario no tiene permiso para la operación |
+| `403 Forbidden` | sin autenticación, o el usuario no tiene permiso para la operación |
 | `404 Not Found` | el producto o diseño no existe |
 | `405 Method Not Allowed` | se intenta `DELETE` |
 
