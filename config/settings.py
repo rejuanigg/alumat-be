@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "clientes",
     "inicio",
     "productos",
+    "pedidos",
     "axes",
     "rest_framework",
 ]

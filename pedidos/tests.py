@@ -1,13 +1,7 @@
-import unittest
-from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
 from django.db.models import ProtectedError
 from django.test import TestCase
-
-# Quitar cuando exista la app clientes y pedidos esté en INSTALLED_APPS.
-if not apps.is_installed("pedidos"):
-    raise unittest.SkipTest("pedidos espera la integración de clientes.")
 
 from clientes.models import Cliente
 from cuentas.models import Usuario
@@ -18,7 +12,15 @@ from .models import DetallePedido, Pedido
 class PedidoTests(TestCase):
     @classmethod
     def setUpTestData(cls):
-        cls.cliente = Cliente.objects.create()
+        cls.cliente = Cliente.objects.create(
+            tipo_cliente=Cliente.TipoCliente.PARTICULAR,
+            nombre="Ana",
+            apellido="Pérez",
+            dni="30111222",
+            direccion="Belgrano 123",
+            telefono="3874000000",
+            correo_electronico="ana@example.test",
+        )
         cls.usuario = Usuario.objects.create_user(
             "vendedor", "vendedor@example.test", "Temporal-segura-298!"
         )
