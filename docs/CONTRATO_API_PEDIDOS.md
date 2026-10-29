@@ -1,4 +1,4 @@
-# Contrato de API: Gestión de Pedidos
+w# Contrato de API: Gestión de Pedidos
 
 Sección del contrato de API de ALUMAT correspondiente al Proceso 3: Gestión de Pedidos (PEDIDO y DETALLE_PEDIDO).
 
