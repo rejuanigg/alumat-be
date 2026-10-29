@@ -1,0 +1,519 @@
+EXPLICACIÓN: CÓMO SE AGREGARON LOS ENDPOINTS DE LA API (BACKEND DE ALUMAT)
+=========================================================================
+
+Este documento explica cómo se agregaron los endpoints de la API REST de
+productos, diseños, pedidos, detalles de pedido, cajas y aperturas de
+caja. Está pensado para alguien que sabe programar pero no conoce Django
+ni Django REST Framework.
+
+Contenido
+  1. Qué es un endpoint y qué es una API REST
+  2. Django REST Framework (DRF): las tres piezas
+  3. Resumen de lo que se hizo
+  4. Pieza 1: serializers.py
+  5. Pieza 2: views.py (ViewSets)
+  6. Pieza 3: urls.py (routers)
+  7. Seguridad: login obligatorio
+  8. Reglas de negocio en la API
+  9. Endpoints creados
+ 10. Errores que devuelve la API
+ 11. Cómo probarlo
+ 12. Pendientes
+ 13. Preguntas que puede hacer el profesor
+
+
+1. QUÉ ES UN ENDPOINT Y QUÉ ES UNA API REST
+-------------------------------------------
+
+Un endpoint es una URL del backend que recibe un pedido HTTP y responde
+con datos en JSON, no con una página HTML. Por ejemplo:
+
+    GET /api/productos/1/
+
+responde:
+
+    {
+      "id_producto": 1,
+      "nombre": "Ventana corrediza",
+      "tipo_abertura": "corrediza",
+      "descripcion": "Ventana de aluminio de dos hojas corredizas.",
+      "activo": true
+    }
+
+"REST" es una forma de ordenar esos endpoints: cada tabla es un
+"recurso" con su URL, y el método HTTP indica qué se quiere hacer:
+
+    GET     -> consultar
+    POST    -> crear
+    PUT     -> modificar todos los campos
+    PATCH   -> modificar algunos campos
+    DELETE  -> borrar
+
+Así el frontend web y la app móvil pueden leer y guardar datos sin
+conocer la base de datos.
+
+
+2. DJANGO REST FRAMEWORK (DRF): LAS TRES PIEZAS
+-----------------------------------------------
+
+Django solo trae lo necesario para hacer páginas HTML. Para hacer una
+API se usa una librería aparte: Django REST Framework (DRF). Ya estaba
+instalada en el proyecto, porque la agregó la app "clientes".
+
+Con DRF, cada endpoint se arma con tres piezas. Es la misma idea que
+rutas -> controlador -> modelo en otros frameworks:
+
+  urls.py          views.py           serializers.py       models.py
+  (router)   -->   (ViewSet)    -->   (Serializer)    -->  (Modelo)
+  "qué URL"        "qué hacer"        "JSON <-> objeto"    "tabla"
+
+- El SERIALIZER traduce entre JSON y el modelo de Django: convierte un
+  objeto en JSON para responder, y valida el JSON que llega para
+  guardarlo.
+- El VIEWSET recibe el pedido HTTP y decide qué hacer: listar, crear,
+  modificar, etc.
+- El ROUTER genera las URLs del ViewSet automáticamente.
+
+Se siguió la misma estructura que ya usaba la app "clientes".
+
+
+3. RESUMEN DE LO QUE SE HIZO
+----------------------------
+
+En cada una de las tres apps (productos, pedidos, cajas) se agregaron
+o completaron tres archivos:
+
+  productos/serializers.py   ProductoSerializer, DisenoSerializer
+  productos/views.py         ProductoViewSet, DisenoViewSet
+  productos/urls.py          rutas /api/productos/ y /api/disenos/
+
+  pedidos/serializers.py     PedidoSerializer, DetallePedidoSerializer
+  pedidos/views.py           PedidoViewSet, DetallePedidoViewSet
+  pedidos/urls.py            rutas /api/pedidos/ y
+                             /api/pedidos/{id}/detalles/
+
+  cajas/serializers.py       CajaSerializer, AperturaCajaSerializer
+  cajas/views.py             CajaViewSet, AperturaCajaViewSet
+  cajas/urls.py              rutas /api/cajas/ y /api/aperturas/
+
+Y en config/urls.py (las URLs generales del proyecto) se agregaron tres
+líneas para "enchufar" esas rutas bajo /api/:
+
+  path("api/", include("clientes.urls")),     # ya existía
+  path("api/", include("productos.urls")),    # nuevo
+  path("api/", include("pedidos.urls")),      # nuevo
+  path("api/", include("cajas.urls")),        # nuevo
+
+No se modificaron los modelos (models.py) ni la base de datos: la API
+usa las tablas que ya existían. Tampoco se tocó la app "clientes".
+
+
+4. PIEZA 1: SERIALIZERS.PY
+--------------------------
+
+Un ModelSerializer se arma a partir del modelo, indicando qué campos
+salen en el JSON. Ejemplo (productos/serializers.py):
+
+  class ProductoSerializer(serializers.ModelSerializer):
+      class Meta:
+          model = Producto
+          fields = ("id_producto", "nombre", "tipo_abertura",
+                    "descripcion", "activo")
+
+Con eso DRF ya sabe:
+  - armar el JSON de respuesta;
+  - validar lo que llega: tipos, campos obligatorios y largo máximo,
+    todo tomado del modelo;
+  - que id_producto es de solo lectura, porque es la PK autoincremental.
+
+a) Claves foráneas con el nombre del diccionario de datos
+
+En el modelo el campo se llama "producto", pero en el JSON tiene que
+llamarse "id_producto". Se resuelve así:
+
+  id_producto = serializers.PrimaryKeyRelatedField(
+      source="producto",                      # campo real del modelo
+      queryset=Producto.objects.all(),        # dónde buscar el id
+      error_messages={"does_not_exist": "El producto indicado no existe."},
+  )
+
+  - "source" indica a qué campo del modelo corresponde.
+  - "queryset" hace que DRF compruebe que el id exista. Si no existe,
+    responde 400 con el mensaje indicado.
+
+b) Campos que define el servidor (solo lectura)
+
+  id_usuario = serializers.PrimaryKeyRelatedField(source="usuario",
+                                                  read_only=True)
+
+  read_only=True significa que el campo sale en la respuesta, pero si el
+  frontend lo manda, se ignora. Así el usuario de un pedido o de una
+  apertura no se puede falsificar: lo pone el servidor (ver sección 5).
+
+c) Validaciones propias
+
+  Las reglas que no salen del modelo se escriben en métodos del
+  serializer:
+  - validate_<campo>(valor): valida un campo.
+  - validate(attrs): valida varios campos juntos.
+  Si algo está mal, se lanza serializers.ValidationError y DRF responde
+  400 con el mensaje.
+
+  Ejemplo: el diseño tiene que ser del producto elegido
+  (pedidos/serializers.py):
+
+    def validate(self, attrs):
+        producto = attrs.get("producto", ...)
+        diseno = attrs.get("diseno", ...)
+        if producto and diseno and diseno.producto_id != producto.pk:
+            raise serializers.ValidationError(
+                {"id_diseno": "El diseño elegido no corresponde al producto."})
+        return attrs
+
+  IMPORTANTE: DRF no ejecuta el método clean() de los modelos. Por eso
+  las reglas de negocio se repiten en el serializer (para dar un error
+  400 claro), y además el modelo las controla en save() como última
+  barrera. En cajas, el serializer llama directamente al método
+  validar_condiciones() del modelo, para no duplicar el código.
+
+
+5. PIEZA 2: VIEWS.PY (VIEWSETS)
+-------------------------------
+
+Un ViewSet agrupa en una clase todas las operaciones de un recurso. DRF
+trae "mixins", que son piezas que se combinan para elegir qué
+operaciones se ofrecen:
+
+  ListModelMixin      -> GET  /recurso/        (listar)
+  CreateModelMixin    -> POST /recurso/        (crear)
+  RetrieveModelMixin  -> GET  /recurso/{id}/   (consultar)
+  UpdateModelMixin    -> PUT y PATCH /recurso/{id}/ (modificar)
+  DestroyModelMixin   -> DELETE /recurso/{id}/ (borrar)
+
+La app clientes usa ModelViewSet, que trae las cinco. En productos,
+pedidos y cajas se eligieron a mano y se dejó afuera DestroyModelMixin.
+Así DELETE no existe y DRF responde 405 (método no permitido), porque
+las reglas del negocio dicen desactivar o cancelar en lugar de borrar.
+
+  class ProductoViewSet(mixins.ListModelMixin,
+                        mixins.CreateModelMixin,
+                        mixins.RetrieveModelMixin,
+                        mixins.UpdateModelMixin,
+                        viewsets.GenericViewSet):
+      serializer_class = ProductoSerializer
+      permission_classes = [IsAuthenticated]
+
+      def get_queryset(self):
+          ...  # filtros ?activo=, ?tipo_abertura=, ?q=
+
+Métodos importantes que se usaron:
+
+- get_queryset(): devuelve qué registros se pueden ver. Ahí se aplican
+  los filtros de la URL, por ejemplo GET /api/pedidos/?estado=pendiente.
+  Los filtros se aplican solo al listar, no al consultar un registro
+  puntual.
+
+- perform_create(serializer): se ejecuta al guardar un registro nuevo.
+  Se usó para asignar el usuario logueado:
+
+      def perform_create(self, serializer):
+          serializer.save(usuario=self.request.user)
+
+- @action: agrega endpoints extra a un ViewSet. Se usó para:
+      GET  /api/productos/{id}/disenos/   diseños de un producto
+      GET  /api/cajas/{id}/aperturas/     aperturas de una caja
+      POST /api/pedidos/{id}/cancelar/    cancelar un pedido
+      POST /api/aperturas/{id}/cerrar/    cerrar una apertura
+
+  Ejemplo:
+
+      @action(detail=True, methods=["post"])
+      def cancelar(self, request, pk=None):
+          pedido = self.get_object()
+          ...
+          pedido.estado = Pedido.Estado.CANCELADO
+          pedido.save(update_fields=["estado"])
+          return Response(PedidoSerializer(pedido).data)
+
+  detail=True significa que el endpoint es sobre un registro (lleva
+  {id} en la URL).
+
+- Detalles dentro de su pedido: DetallePedidoViewSet toma el id del
+  pedido de la URL (self.kwargs["id_pedido"]). Si el pedido no existe,
+  responde 404. Solo muestra los detalles de ese pedido, y al crear uno
+  le asigna ese pedido. Así un detalle no se puede crear sin pedido ni
+  consultar desde otro pedido.
+
+- Error 409 (Conflict): DRF no trae una excepción para 409, así que se
+  definió una:
+
+      class Conflicto(APIException):
+          status_code = 409
+
+  Se usa cuando la operación es válida pero el estado actual no la
+  permite. Por ejemplo: modificar un pedido que ya está en producción,
+  cancelar un pedido entregado o cerrar una apertura ya cerrada.
+
+
+6. PIEZA 3: URLS.PY (ROUTERS)
+-----------------------------
+
+En lugar de escribir cada URL a mano, se registra el ViewSet en un
+router y el router genera las rutas:
+
+  router = SimpleRouter()
+  router.register(r"productos", ProductoViewSet, basename="producto")
+  router.register(r"disenos", DisenoViewSet, basename="diseno")
+  urlpatterns = router.urls
+
+Eso genera:
+  /productos/              GET (listar), POST (crear)
+  /productos/{id}/         GET, PUT, PATCH
+  /productos/{id}/disenos/ GET (por el @action)
+  /disenos/  y  /disenos/{id}/
+
+Después, config/urls.py les agrega el prefijo "api/".
+
+Para los detalles del pedido, la ruta lleva el id del pedido en el
+medio. Se resolvió con una expresión regular en el prefijo:
+
+  router.register(r"pedidos/(?P<id_pedido>\d+)/detalles",
+                  DetallePedidoViewSet, basename="detalle-pedido")
+
+  (?P<id_pedido>\d+) captura el número de la URL y lo pasa al ViewSet
+  como self.kwargs["id_pedido"].
+
+Se usó SimpleRouter y no DefaultRouter, que es el que usa clientes.
+DefaultRouter además crea una página índice en /api/, y como clientes ya
+la crea, se hubieran pisado. Por eso la página /api/ lista solo
+clientes, aunque los demás endpoints funcionan entrando directo a su URL.
+
+
+7. SEGURIDAD: LOGIN OBLIGATORIO
+-------------------------------
+
+Cada ViewSet tiene:
+
+    permission_classes = [IsAuthenticated]
+
+Eso exige que el usuario haya iniciado sesión. Se usa la misma sesión
+del sitio: se entra en /cuentas/ingresar/ y después se puede usar la
+API desde el navegador. Sin sesión, la API responde:
+
+    403 {"detail": "Las credenciales de autenticación no se proveyeron."}
+
+Se puso en cada ViewSet y no en la configuración global (settings.py)
+para no cambiar el comportamiento de la app clientes, que es de otra
+persona.
+
+Las peticiones que modifican datos (POST, PUT, PATCH) desde el navegador
+también exigen el token CSRF de Django, que protege contra formularios
+falsos de otros sitios.
+
+
+8. REGLAS DE NEGOCIO EN LA API
+------------------------------
+
+PRODUCTOS Y DISEÑOS
+- No hay DELETE (405): se desactiva con PATCH {"activo": false}.
+- Un diseño con un producto inexistente se rechaza (400).
+- El producto de un diseño no se puede cambiar después de crearlo
+  (400), para mantener la asociación.
+
+PEDIDOS
+- id_usuario lo pone el servidor; estado nace "pendiente". Si el
+  frontend manda otros valores, se ignoran.
+- Un cliente inexistente se rechaza (400).
+- Solo un pedido "pendiente" se puede modificar. En otro estado,
+  solamente se puede avanzar el estado; cualquier otro cambio da 409.
+- El estado solo avanza:
+  pendiente -> en_produccion -> terminado -> entregado.
+  Retroceder da 400.
+- Para cancelar se usa POST /api/pedidos/{id}/cancelar/. Mandar
+  "cancelado" por PATCH da 400. Un pedido cancelado o entregado no
+  admite cambios (409).
+- No hay DELETE de pedidos (405).
+
+DETALLES DE PEDIDO
+- El diseño tiene que corresponder al producto (400).
+- Medidas y cantidad mayores a 0 (400). Lo valida DRF con los
+  validadores del modelo.
+- Solo se agregan, modifican o quitan detalles de un pedido "pendiente"
+  (409 si no lo está).
+- Es el único recurso con DELETE, porque un detalle no tiene registros
+  que dependan de él.
+
+CAJAS Y APERTURAS
+- No hay DELETE de cajas (405): se desactiva con PATCH {"activa": false}.
+- La apertura toma el usuario logueado y la fecha/hora del servidor. El
+  estado nace "abierta".
+- No se puede abrir una caja inactiva ni una caja que ya tiene una
+  apertura abierta (400).
+- Una apertura no se modifica ni se borra (405): solo se registra y se
+  cierra con POST /api/aperturas/{id}/cerrar/. Cerrar una ya cerrada
+  da 409.
+- Si dos personas abren la misma caja exactamente al mismo tiempo, la
+  base de datos rechaza la segunda por su índice único y la API
+  responde 409.
+
+Detalle técnico: DRF genera solo un validador a partir del índice único
+parcial de cajas, pero ese validador devuelve un mensaje genérico. Se
+desactivó en el serializer (validators = []), porque validate() hace el
+mismo control con un mensaje claro. La base de datos lo sigue
+garantizando igual.
+
+
+9. ENDPOINTS CREADOS
+--------------------
+
+PRODUCTOS Y DISEÑOS
+  GET    /api/productos/                    lista (filtros: activo,
+                                            tipo_abertura, q)
+  POST   /api/productos/                    registra
+  GET    /api/productos/{id_producto}/      consulta
+  PUT    /api/productos/{id_producto}/      modifica todo
+  PATCH  /api/productos/{id_producto}/      modifica algunos campos /
+                                            desactiva
+  GET    /api/productos/{id_producto}/disenos/   diseños del producto
+  GET    /api/disenos/                      lista (filtros: id_producto,
+                                            activo)
+  POST   /api/disenos/                      registra
+  GET    /api/disenos/{id_diseno}/          consulta
+  PUT    /api/disenos/{id_diseno}/          modifica todo
+  PATCH  /api/disenos/{id_diseno}/          modifica algunos campos /
+                                            desactiva
+
+PEDIDOS Y DETALLES
+  GET    /api/pedidos/                      lista (filtros: id_cliente,
+                                            id_usuario, estado,
+                                            fecha_desde, fecha_hasta)
+  POST   /api/pedidos/                      registra
+  GET    /api/pedidos/{id_pedido}/          consulta
+  PUT    /api/pedidos/{id_pedido}/          modifica todo
+  PATCH  /api/pedidos/{id_pedido}/          modifica algunos campos /
+                                            avanza el estado
+  POST   /api/pedidos/{id_pedido}/cancelar/ cancela
+  GET    /api/pedidos/{id_pedido}/detalles/            lista detalles
+  POST   /api/pedidos/{id_pedido}/detalles/            agrega detalle
+  GET    /api/pedidos/{id_pedido}/detalles/{id}/       consulta detalle
+  PUT    /api/pedidos/{id_pedido}/detalles/{id}/       modifica todo
+  PATCH  /api/pedidos/{id_pedido}/detalles/{id}/       modifica algunos
+                                                       campos
+  DELETE /api/pedidos/{id_pedido}/detalles/{id}/       quita detalle
+
+CAJAS Y APERTURAS
+  GET    /api/cajas/                        lista (filtro: activa)
+  POST   /api/cajas/                        registra
+  GET    /api/cajas/{id_caja}/              consulta
+  PUT    /api/cajas/{id_caja}/              modifica todo
+  PATCH  /api/cajas/{id_caja}/              modifica algunos campos /
+                                            desactiva
+  GET    /api/cajas/{id_caja}/aperturas/    aperturas de la caja
+  GET    /api/aperturas/                    lista (filtros: id_caja,
+                                            id_usuario, estado)
+  POST   /api/aperturas/                    abre una caja
+  GET    /api/aperturas/{id_apertura}/      consulta
+  POST   /api/aperturas/{id_apertura}/cerrar/   cierra
+
+El detalle de cada endpoint (JSON que se envía, JSON que se recibe y
+errores) de productos y pedidos está en:
+  docs/CONTRATO_API_PRODUCTOS.md
+  docs/CONTRATO_API_PEDIDOS.md
+
+
+10. ERRORES QUE DEVUELVE LA API
+-------------------------------
+
+  400 Bad Request         datos inválidos. El cuerpo indica el campo:
+                          {"id_diseno": ["El diseño elegido no
+                          corresponde al producto."]}
+  403 Forbidden           sin sesión iniciada
+  404 Not Found           el registro no existe
+  405 Method Not Allowed  operación no ofrecida (por ejemplo DELETE de
+                          un producto)
+  409 Conflict            el estado actual no permite la operación:
+                          {"detail": "El pedido no está pendiente y no
+                          puede modificarse."}
+
+
+11. CÓMO PROBARLO
+-----------------
+
+Desde el navegador (lo más fácil para una demostración):
+  1. Levantar el proyecto: docker compose up -d
+  2. Entrar a http://localhost:8001/cuentas/ingresar/ con un usuario
+     aprobado.
+  3. Ir a http://localhost:8001/api/productos/
+     DRF muestra una página web (la "browsable API") con el JSON y, al
+     final, un formulario para hacer POST. En la página de un registro
+     (/api/productos/1/) aparecen también PUT y PATCH.
+  4. Probar los endpoints extra, por ejemplo /api/productos/1/disenos/.
+
+Desde la terminal, sin sesión (tiene que dar 403):
+    curl -i http://localhost:8001/api/productos/
+
+Verificar que la configuración no tenga errores:
+    docker compose exec web python manage.py check
+
+Durante el desarrollo se escribieron tests automáticos de la API: 26
+tests, con APITestCase de DRF. Probaban cada endpoint, los filtros, los
+códigos de error y las reglas de negocio, y pasaron todos junto con el
+resto de la suite (77 tests). Esos archivos de tests ya no están en el
+proyecto.
+
+
+12. PENDIENTES
+--------------
+
+- La app móvil va a necesitar autenticación por token (por ejemplo
+  TokenAuthentication de DRF o JWT). Hoy la API solo funciona con la
+  sesión del navegador.
+- No hay paginación: los listados devuelven todos los registros.
+- Falta el contrato de API de cajas (el documento con los JSON de
+  ejemplo).
+- Decisiones a confirmar con el equipo: permisos (¿cualquier usuario
+  aprobado o solo el administrador?), si se permiten pedidos con
+  productos o diseños desactivados, y el resto de lo listado en los
+  contratos.
+
+
+13. PREGUNTAS QUE PUEDE HACER EL PROFESOR
+-----------------------------------------
+
+¿Qué diferencia hay entre una vista de Django y una de DRF?
+  Una vista de Django devuelve HTML (una página). Una de DRF devuelve
+  JSON, valida datos que llegan en JSON y maneja los códigos HTTP
+  (400, 403, 404, etc.) automáticamente.
+
+¿Para qué sirve el serializer si ya está el modelo?
+  El modelo representa la tabla. El serializer define cómo se ve esa
+  tabla hacia afuera, es decir, qué campos y con qué nombres, y valida
+  lo que manda el cliente. Por ejemplo, el modelo tiene "producto" y el
+  JSON muestra "id_producto".
+
+¿Por qué no hay DELETE?
+  Las reglas de integridad piden conservar el historial. En lugar de
+  borrar se desactiva (productos, diseños, cajas), se cancela (pedidos)
+  o se cierra (aperturas). Al no incluir DestroyModelMixin, el método
+  DELETE no existe y DRF responde 405.
+
+¿Cómo se sabe qué usuario registró un pedido?
+  El serializer tiene id_usuario como solo lectura, y el ViewSet lo
+  asigna en perform_create() con request.user, que es el usuario de la
+  sesión. El frontend no puede elegirlo.
+
+¿Qué pasa si se manda un diseño de otro producto?
+  El serializer lo detecta en validate() y responde 400 con el mensaje
+  "El diseño elegido no corresponde al producto." Si alguien lo
+  intentara sin pasar por la API, el modelo lo vuelve a controlar en
+  save().
+
+¿Por qué 409 y no 400?
+  400 significa "los datos que mandaste están mal". 409 significa "los
+  datos están bien, pero el estado actual del registro no lo permite".
+  Por ejemplo, modificar un pedido que ya está en producción.
+
+¿Por qué el login está en cada ViewSet y no en settings.py?
+  Ponerlo en settings.py cambiaría también la API de clientes, que es de
+  otra persona del equipo. Así cada app define su propia seguridad sin
+  afectar a las demás.

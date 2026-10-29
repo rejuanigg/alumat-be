@@ -11,7 +11,7 @@ Sigue las mismas convenciones que [Gestión de Productos y Diseños](CONTRATO_AP
 - **Fechas:** formato ISO 8601 (`AAAA-MM-DD`).
 - **Medidas:** `ancho` y `alto` en **milímetros**, números enteros.
 - **Nombres de campos:** iguales a los del diccionario de datos (`id_pedido`, `id_cliente`, etc.).
-- **Autenticación:** todos los endpoints requieren un usuario autenticado. Si no hay sesión válida, se responde `401`.
+- **Autenticación:** todos los endpoints requieren un usuario autenticado. Se usa la sesión de Django (el mismo login del sitio). Si no hay sesión válida, se responde `403` con `{"detail": "Las credenciales de autenticación no se proveyeron."}`.
 - **Sin borrado de pedidos:** un pedido no se elimina, se cancela. `DELETE` sobre un pedido responde `405 Method Not Allowed`.
 
 ## Modelo de datos
@@ -77,7 +77,7 @@ Cualquier otro valor se rechaza con `400`.
 | Regla | Respuesta si se incumple |
 |---|---|
 | El cliente debe existir | `400`, error en `id_cliente` |
-| El usuario debe existir | se toma del usuario autenticado; sin sesión, `401` |
+| El usuario debe existir | se toma del usuario autenticado; sin sesión, `403` |
 | El detalle debe pertenecer a un pedido existente | `404` (el `id_pedido` de la URL no existe) |
 | El producto y el diseño deben existir | `400`, error en `id_producto` o `id_diseno` |
 | **El diseño debe corresponder al producto** | `400`, error en `id_diseno` |
@@ -286,8 +286,7 @@ Registro devuelto por `GET /api/pedidos/15/detalles/31/`:
 | Código | Cuándo |
 |---|---|
 | `400 Bad Request` | datos inválidos, referencia inexistente o diseño que no corresponde al producto |
-| `401 Unauthorized` | sin autenticación |
-| `403 Forbidden` | el usuario no tiene permiso para la operación |
+| `403 Forbidden` | sin autenticación, o el usuario no tiene permiso para la operación |
 | `404 Not Found` | el pedido o el detalle no existe |
 | `405 Method Not Allowed` | `DELETE` sobre un pedido |
 | `409 Conflict` | operación no permitida por el estado del pedido |
