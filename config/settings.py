@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "catalogo",
     "inicio",
     "axes",
+    'ventas',
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
