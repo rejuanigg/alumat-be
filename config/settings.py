@@ -37,6 +37,7 @@ INSTALLED_APPS = [
     "pedidos",
     "axes",
     "rest_framework",
+    'ventas',
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
