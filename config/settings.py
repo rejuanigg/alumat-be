@@ -36,6 +36,8 @@ INSTALLED_APPS = [
     "productos",
     "pedidos",
     "cajas",
+    'movimientos_caja',
+    'ventas',
     "axes",
     "rest_framework",
 ]
