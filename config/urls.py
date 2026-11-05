@@ -10,6 +10,7 @@ urlpatterns = [
     path("api/", include("pedidos.urls")),
     path("api/", include("cajas.urls")),
     path("", include("inicio.urls")),
+    path('api/', include('movimientos_caja.urls')),
 ]
 admin.site.site_header = "Administración de la organización"
 admin.site.site_title = "Administración"
