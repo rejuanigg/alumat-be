@@ -40,7 +40,6 @@ INSTALLED_APPS = [
     'ventas',
     "axes",
     "rest_framework",
-    'ventas',
 ]
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
