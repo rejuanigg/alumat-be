@@ -13,19 +13,16 @@ class TipoMovimiento(models.TextChoices):
     SALIDA = "SALIDA", "Salida"
 
 
-# Cobros que no mueven efectivo en la caja.
-METODOS_NO_EFECTIVO = ("transferencia", "tarjeta")
-
-
 class MovimientoCaja(models.Model):
     id_movimiento = models.AutoField(primary_key=True)
-    id_apertura = models.ForeignKey(
+    # Las columnas conservan el nombre id_*; en Python el campo es el objeto relacionado.
+    apertura = models.ForeignKey(
         "cajas.AperturaCaja",
         on_delete=models.PROTECT,
         db_column="id_apertura",
         related_name="movimientos",
     )
-    id_cobro = models.ForeignKey(
+    cobro = models.ForeignKey(
         "ventas.Cobro",
         on_delete=models.PROTECT,
         db_column="id_cobro",
@@ -33,10 +30,11 @@ class MovimientoCaja(models.Model):
         blank=True,
         related_name="movimientos",
     )
-    id_usuario = models.ForeignKey(
+    usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         db_column="id_usuario",
+        related_name="movimientos_caja",
     )
     fecha_movimiento = models.DateTimeField(default=timezone.now)
     tipo_movimiento = models.CharField(max_length=10, choices=TipoMovimiento.choices)
@@ -68,20 +66,20 @@ class MovimientoCaja(models.Model):
         errores = {}
 
         # Solo se registran movimientos nuevos en una apertura abierta.
-        if self._state.adding and self.id_apertura_id is not None:
+        if self._state.adding and self.apertura_id is not None:
             from cajas.models import AperturaCaja
 
             if not AperturaCaja.objects.filter(
-                pk=self.id_apertura_id, estado=AperturaCaja.Estado.ABIERTA
+                pk=self.apertura_id, estado=AperturaCaja.Estado.ABIERTA
             ).exists():
-                errores["id_apertura"] = "La caja de esta apertura ya está cerrada."
+                errores["apertura"] = "La caja de esta apertura ya está cerrada."
 
-        if self.id_cobro_id is not None:
-            metodo = (self.id_cobro.metodo_pago or "").lower()
-            if any(pago in metodo for pago in METODOS_NO_EFECTIVO):
-                errores["id_cobro"] = (
-                    "Los cobros por transferencia o tarjeta no generan "
-                    "movimientos de efectivo."
+        if self.cobro_id is not None:
+            from ventas.models import MetodoPago
+
+            if self.cobro.metodo_pago != MetodoPago.EFECTIVO:
+                errores["cobro"] = (
+                    "Solo los cobros en efectivo generan movimientos de caja."
                 )
             elif self.tipo_movimiento != TipoMovimiento.ENTRADA:
                 errores["tipo_movimiento"] = "Un cobro solo puede ser una entrada."
@@ -99,16 +97,17 @@ class MovimientoCaja(models.Model):
 
 class CierreCaja(models.Model):
     id_cierre = models.AutoField(primary_key=True)
-    id_apertura = models.ForeignKey(
+    apertura = models.ForeignKey(
         "cajas.AperturaCaja",
         on_delete=models.PROTECT,
         db_column="id_apertura",
         related_name="cierres",
     )
-    id_usuario = models.ForeignKey(
+    usuario = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         db_column="id_usuario",
+        related_name="cierres_caja",
     )
     fecha_hora_cierre = models.DateTimeField(default=timezone.now)
     total_ingresos = models.DecimalField(
@@ -132,9 +131,7 @@ class CierreCaja(models.Model):
         ordering = ["-fecha_hora_cierre", "-id_cierre"]
         constraints = [
             # Una apertura se cierra una sola vez.
-            models.UniqueConstraint(
-                fields=["id_apertura"], name="un_cierre_por_apertura"
-            ),
+            models.UniqueConstraint(fields=["apertura"], name="un_cierre_por_apertura"),
             models.CheckConstraint(
                 condition=models.Q(efectivo_contado__gte=0),
                 name="cierre_efectivo_no_negativo",
@@ -142,14 +139,14 @@ class CierreCaja(models.Model):
         ]
 
     def calcular_y_cerrar(self):
-        totales = self.id_apertura.movimientos.aggregate(
+        totales = self.apertura.movimientos.aggregate(
             ingresos=Sum("monto", filter=models.Q(tipo_movimiento=TipoMovimiento.ENTRADA)),
             egresos=Sum("monto", filter=models.Q(tipo_movimiento=TipoMovimiento.SALIDA)),
         )
         self.total_ingresos = totales["ingresos"] or Decimal("0")
         self.total_egresos = totales["egresos"] or Decimal("0")
         self.saldo_esperado = (
-            self.id_apertura.monto_inicial + self.total_ingresos - self.total_egresos
+            self.apertura.monto_inicial + self.total_ingresos - self.total_egresos
         )
         self.diferencia = self.efectivo_contado - self.saldo_esperado
 
@@ -162,18 +159,14 @@ class CierreCaja(models.Model):
 
         with transaction.atomic():
             # Bloquea la apertura para que no entren movimientos mientras se cierra.
-            apertura = AperturaCaja.objects.select_for_update().get(
-                pk=self.id_apertura_id
-            )
+            apertura = AperturaCaja.objects.select_for_update().get(pk=self.apertura_id)
             if apertura.estado != AperturaCaja.Estado.ABIERTA:
-                raise ValidationError(
-                    {"id_apertura": "Esta apertura ya está cerrada."}
-                )
-            self.id_apertura = apertura
+                raise ValidationError({"apertura": "Esta apertura ya está cerrada."})
+            self.apertura = apertura
             self.calcular_y_cerrar()
             super().save(*args, **kwargs)
             apertura.estado = AperturaCaja.Estado.CERRADA
             apertura.save(update_fields=["estado"])
 
     def __str__(self):
-        return f"Cierre #{self.id_cierre} - Apertura #{self.id_apertura_id}"
+        return f"Cierre #{self.id_cierre} - Apertura #{self.apertura_id}"

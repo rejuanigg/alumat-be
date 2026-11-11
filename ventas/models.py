@@ -25,7 +25,16 @@ class Venta(models.Model):
         return f"Venta #{self.pk}"
 
 
+class MetodoPago(models.TextChoices):
+    EFECTIVO = "efectivo", "Efectivo"
+    TRANSFERENCIA = "transferencia", "Transferencia"
+    TARJETA_DEBITO = "tarjeta_debito", "Tarjeta de débito"
+    TARJETA_CREDITO = "tarjeta_credito", "Tarjeta de crédito"
+
+
 class Cobro(models.Model):
+    MetodoPago = MetodoPago
+
     venta = models.ForeignKey(
         Venta,
         on_delete=models.PROTECT,
@@ -39,7 +48,9 @@ class Cobro(models.Model):
         validators=[MinValueValidator(Decimal("0.01"))],
     )
     tipo_cobro = models.CharField(max_length=20)
-    metodo_pago = models.CharField(max_length=30)
+    metodo_pago = models.CharField(
+        "método de pago", max_length=30, choices=MetodoPago.choices
+    )
     numero_boleta = models.CharField(max_length=30, unique=True)
 
     class Meta:
@@ -48,6 +59,10 @@ class Cobro(models.Model):
             models.CheckConstraint(
                 condition=models.Q(monto__gt=0),
                 name="cobro_monto_positivo",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(metodo_pago__in=MetodoPago.values),
+                name="cobro_metodo_pago_valido",
             ),
         ]
 

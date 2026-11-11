@@ -1,21 +1,47 @@
-from rest_framework import viewsets
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import IntegrityError, transaction
+from rest_framework import mixins, viewsets
 from rest_framework.permissions import IsAuthenticated
-from .models import MovimientoCaja, CierreCaja
-from .serializers import MovimientoCajaSerializer, CierreCajaSerializer
 
-class MovimientoCajaViewSet(viewsets.ModelViewSet):
+from .models import CierreCaja, MovimientoCaja
+from .serializers import (
+    CierreCajaSerializer,
+    Conflicto,
+    MovimientoCajaSerializer,
+    error_de_api,
+)
+
+
+class SoloRegistrarYConsultar(
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet,
+):
+    """Sin PUT, PATCH ni DELETE: los movimientos y cierres son historial de caja."""
+
+    permission_classes = [IsAuthenticated]
+    mensaje_conflicto = "La operación no está permitida en el estado actual."
+
+    def perform_create(self, serializer):
+        try:
+            with transaction.atomic():
+                # El responsable es siempre el usuario autenticado.
+                serializer.save(usuario=self.request.user)
+        except IntegrityError:
+            # Otro pedido igual se registró al mismo tiempo.
+            raise Conflicto(self.mensaje_conflicto)
+        except DjangoValidationError as error:
+            # La apertura cambió de estado entre la validación y el guardado.
+            raise error_de_api(error)
+
+
+class MovimientoCajaViewSet(SoloRegistrarYConsultar):
     queryset = MovimientoCaja.objects.all()
     serializer_class = MovimientoCajaSerializer
-    permission_classes = [IsAuthenticated]
-
-    def perform_create(self, serializer):
-        serializer.save(id_usuario=self.request.user)
 
 
-class CierreCajaViewSet(viewsets.ModelViewSet):
+class CierreCajaViewSet(SoloRegistrarYConsultar):
     queryset = CierreCaja.objects.all()
     serializer_class = CierreCajaSerializer
-    permission_classes = [IsAuthenticated]
-
-    def perform_create(self, serializer):
-        serializer.save(id_usuario=self.request.user)
+    mensaje_conflicto = "La apertura ya está cerrada."

@@ -1,16 +1,114 @@
-# movimientos_caja/serializers.py
+from django.core.exceptions import NON_FIELD_ERRORS
+from django.core.exceptions import ValidationError as DjangoValidationError
 from rest_framework import serializers
-from .models import MovimientoCaja, CierreCaja
+from rest_framework.exceptions import APIException
+from rest_framework.settings import api_settings
+
+from cajas.models import AperturaCaja
+from ventas.models import Cobro
+
+from .models import CierreCaja, MovimientoCaja
+
+# Nombre del campo en el modelo -> nombre en el JSON de la API.
+NOMBRES_API = {
+    "apertura": "id_apertura",
+    "cobro": "id_cobro",
+    "usuario": "id_usuario",
+    NON_FIELD_ERRORS: api_settings.NON_FIELD_ERRORS_KEY,
+}
+
+
+class Conflicto(APIException):
+    status_code = 409
+    default_detail = "La operación no está permitida en el estado actual."
+    default_code = "conflicto"
+
+
+def error_de_api(error):
+    """Traduce un ValidationError de Django a uno de DRF (400) con los nombres de la API."""
+    return serializers.ValidationError(
+        {NOMBRES_API.get(campo, campo): mensajes for campo, mensajes in error.message_dict.items()}
+    )
+
+
+def exigir_apertura_abierta(apertura):
+    if apertura.estado != AperturaCaja.Estado.ABIERTA:
+        raise Conflicto("La apertura ya está cerrada.")
+
 
 class MovimientoCajaSerializer(serializers.ModelSerializer):
+    id_apertura = serializers.PrimaryKeyRelatedField(
+        source="apertura",
+        queryset=AperturaCaja.objects.all(),
+        error_messages={"does_not_exist": "La apertura indicada no existe."},
+    )
+    id_cobro = serializers.PrimaryKeyRelatedField(
+        source="cobro",
+        queryset=Cobro.objects.all(),
+        required=False,
+        allow_null=True,
+        error_messages={"does_not_exist": "El cobro indicado no existe."},
+    )
+    id_usuario = serializers.PrimaryKeyRelatedField(source="usuario", read_only=True)
+
     class Meta:
         model = MovimientoCaja
-        fields = '__all__'
-        # Evitamos que pidan el usuario en la petición, ya que lo agregas en la vista
-        read_only_fields = ['id_usuario', 'fecha_movimiento'] 
+        fields = (
+            "id_movimiento",
+            "id_apertura",
+            "id_cobro",
+            "id_usuario",
+            "fecha_movimiento",
+            "tipo_movimiento",
+            "concepto",
+            "monto",
+        )
+        # La fecha la pone el servidor.
+        read_only_fields = ("fecha_movimiento",)
+
+    def validate(self, attrs):
+        exigir_apertura_abierta(attrs["apertura"])
+        # Reutiliza las reglas del modelo (cobro en efectivo, cobro = entrada).
+        try:
+            MovimientoCaja(**attrs).clean()
+        except DjangoValidationError as error:
+            raise error_de_api(error)
+        return attrs
+
 
 class CierreCajaSerializer(serializers.ModelSerializer):
+    id_apertura = serializers.PrimaryKeyRelatedField(
+        source="apertura",
+        queryset=AperturaCaja.objects.all(),
+        error_messages={"does_not_exist": "La apertura indicada no existe."},
+    )
+    id_usuario = serializers.PrimaryKeyRelatedField(source="usuario", read_only=True)
+
     class Meta:
         model = CierreCaja
-        fields = '__all__'
-        read_only_fields = ['id_usuario', 'fecha_hora_cierre', 'total_ingresos', 'total_egresos', 'saldo_esperado', 'diferencia']
+        fields = (
+            "id_cierre",
+            "id_apertura",
+            "id_usuario",
+            "fecha_hora_cierre",
+            "total_ingresos",
+            "total_egresos",
+            "saldo_esperado",
+            "efectivo_contado",
+            "diferencia",
+        )
+        # Todo lo calcula el servidor; solo se envían la apertura y el efectivo contado.
+        read_only_fields = (
+            "fecha_hora_cierre",
+            "total_ingresos",
+            "total_egresos",
+            "saldo_esperado",
+            "diferencia",
+        )
+        # "Un cierre por apertura" se informa con 409 en validate(); la base lo
+        # sigue garantizando con su restricción única.
+        validators = []
+
+    def validate(self, attrs):
+        exigir_apertura_abierta(attrs["apertura"])
+        return attrs

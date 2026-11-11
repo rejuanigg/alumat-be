@@ -3,9 +3,10 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.test import TestCase
+from rest_framework.test import APITestCase
 
 from cajas.models import AperturaCaja, Caja
-from ventas.models import Cobro, Venta
+from ventas.models import Cobro, MetodoPago, Venta
 
 from .models import CierreCaja, MovimientoCaja, TipoMovimiento
 
@@ -24,8 +25,8 @@ class CajaTestCase(TestCase):
 
     def movimiento(self, tipo, monto, **extra):
         return MovimientoCaja.objects.create(
-            id_apertura=self.apertura,
-            id_usuario=self.usuario,
+            apertura=self.apertura,
+            usuario=self.usuario,
             tipo_movimiento=tipo,
             concepto="prueba",
             monto=Decimal(monto),
@@ -43,8 +44,8 @@ class CajaTestCase(TestCase):
 
     def cerrar(self, contado):
         return CierreCaja.objects.create(
-            id_apertura=self.apertura,
-            id_usuario=self.usuario,
+            apertura=self.apertura,
+            usuario=self.usuario,
             efectivo_contado=Decimal(contado),
         )
 
@@ -74,14 +75,14 @@ class CajaTestCase(TestCase):
     def test_cobro_con_tarjeta_no_genera_movimiento(self):
         with self.assertRaises(ValidationError):
             self.movimiento(
-                TipoMovimiento.ENTRADA, "500", id_cobro=self.cobro("Tarjeta", "B-1")
+                TipoMovimiento.ENTRADA, "500", cobro=self.cobro(MetodoPago.TARJETA_DEBITO, "B-1")
             )
 
     def test_cobro_en_efectivo_genera_entrada(self):
-        cobro = self.cobro("Efectivo", "B-2")
-        self.movimiento(TipoMovimiento.ENTRADA, "500", id_cobro=cobro)
+        cobro = self.cobro(MetodoPago.EFECTIVO, "B-2")
+        self.movimiento(TipoMovimiento.ENTRADA, "500", cobro=cobro)
         with self.assertRaises(ValidationError):
-            self.movimiento(TipoMovimiento.SALIDA, "500", id_cobro=cobro)
+            self.movimiento(TipoMovimiento.SALIDA, "500", cobro=cobro)
 
     def test_monto_debe_ser_positivo(self):
         with self.assertRaises(ValidationError):
@@ -89,3 +90,54 @@ class CajaTestCase(TestCase):
 
     def test_str_de_venta(self):
         self.assertEqual(str(self.venta), f"Venta #{self.venta.pk}")
+
+
+class CajaApiTestCase(CajaTestCase, APITestCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_authenticate(self.usuario)
+
+    def post(self, url, datos):
+        return self.client.post(url, datos, format="json")
+
+    def test_movimiento_por_api_usa_nombres_id(self):
+        r = self.post(
+            "/api/movimiento-caja/",
+            {"id_apertura": self.apertura.pk, "tipo_movimiento": "ENTRADA",
+             "concepto": "venta", "monto": "100.00"},
+        )
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["id_usuario"], self.usuario.pk)
+        self.assertEqual(r.json()["id_apertura"], self.apertura.pk)
+
+    def test_cobro_con_tarjeta_por_api_da_400(self):
+        cobro = self.cobro(MetodoPago.TRANSFERENCIA, "B-3")
+        r = self.post(
+            "/api/movimiento-caja/",
+            {"id_apertura": self.apertura.pk, "id_cobro": cobro.pk,
+             "tipo_movimiento": "ENTRADA", "concepto": "cobro", "monto": "500.00"},
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("id_cobro", r.json())
+
+    def test_cierre_por_api_y_segundo_cierre_da_409(self):
+        datos = {"id_apertura": self.apertura.pk, "efectivo_contado": "1000.00"}
+        r = self.post("/api/cierre-caja/", datos)
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(r.json()["saldo_esperado"], "1000.00")
+        self.assertEqual(self.post("/api/cierre-caja/", datos).status_code, 409)
+        r = self.post(
+            "/api/movimiento-caja/",
+            {"id_apertura": self.apertura.pk, "tipo_movimiento": "ENTRADA",
+             "concepto": "tarde", "monto": "1.00"},
+        )
+        self.assertEqual(r.status_code, 409)
+
+    def test_no_se_modifican_ni_borran(self):
+        cierre = self.cerrar("1000")
+        url = f"/api/cierre-caja/{cierre.pk}/"
+        self.assertEqual(self.client.delete(url).status_code, 405)
+        self.assertEqual(
+            self.client.patch(url, {"efectivo_contado": "5"}, format="json").status_code,
+            405,
+        )
