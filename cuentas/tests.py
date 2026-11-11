@@ -182,6 +182,20 @@ class CuentasTests(TestCase):
         self.assertTrue(user.is_active)
         self.assertEqual(user.username, "admin2")
 
+    def test_usuario_guardado_con_mayusculas_se_normaliza_y_autentica(self):
+        # Simula el alta desde el admin, que no pasa por create_user.
+        user = Usuario(
+            username=" Juan ", email="Juan@Example.test", estado="aprobado", is_active=True
+        )
+        user.set_password("Temporal-segura-298!")
+        user.save()
+        self.assertEqual((user.username, user.email), ("juan", "juan@example.test"))
+        self.assertEqual(Usuario.objects.get_by_natural_key("JUAN"), user)
+
+    def test_create_user_exige_email(self):
+        with self.assertRaises(ValueError):
+            Usuario.objects.create_user("sinmail", "", "Temporal-segura-298!")
+
     @override_settings(SITE_NAME="Organización de ejemplo")
     def test_nombre_organizacion_en_login(self):
         self.assertContains(

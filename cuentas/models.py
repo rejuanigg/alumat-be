@@ -3,18 +3,23 @@ from django.db import models
 from django.db.models.functions import Lower
 
 
+def normalizar(valor):
+    return (valor or "").strip().lower()
+
+
 class AdministradorUsuarios(UserManager):
     def _create_user(self, username, email, password, **extra_fields):
-        return super()._create_user(
-            username.strip().lower(),
-            (email or "").strip().lower(),
-            password,
-            **extra_fields
-        )
+        if not normalizar(email):
+            raise ValueError("El correo electrónico es obligatorio.")
+        return super()._create_user(username, email, password, **extra_fields)
 
     def create_superuser(self, username, email=None, password=None, **extra_fields):
-        extra_fields.update(is_active=True, estado="aprobado")
+        extra_fields.update(is_active=True, estado=Usuario.Estado.APROBADO)
         return super().create_superuser(username, email, password, **extra_fields)
+
+    def get_by_natural_key(self, username):
+        # El login no distingue mayúsculas, igual que la unicidad en la base.
+        return self.get(username__iexact=normalizar(username))
 
 
 class Usuario(AbstractUser):
@@ -39,7 +44,19 @@ class Usuario(AbstractUser):
                 Lower("username"), name="usuario_nombre_sin_mayusculas"
             ),
             models.CheckConstraint(
-                condition=models.Q(is_active=False) | models.Q(estado="aprobado"),
+                condition=models.Q(is_active=False)
+                | models.Q(estado="aprobado"),
                 name="activo_solo_aprobado",
             ),
         ]
+
+    def clean(self):
+        super().clean()
+        self.username = normalizar(self.username)
+        self.email = normalizar(self.email)
+
+    def save(self, *args, **kwargs):
+        # Se normaliza siempre: admin, formularios, API, shell o create_user.
+        self.username = normalizar(self.username)
+        self.email = normalizar(self.email)
+        super().save(*args, **kwargs)
