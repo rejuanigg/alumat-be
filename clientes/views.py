@@ -1,9 +1,16 @@
 from django.db import IntegrityError, transaction
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import mixins, viewsets
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 
 from .models import Cliente
 from .serializers import ClienteSerializer
+
+
+class Conflicto(APIException):
+    status_code = 409
+    default_detail = "Otro cliente se guardó con el mismo DNI o CUIT. Revisá e intentá de nuevo."
+    default_code = "conflicto"
 
 
 class ClienteViewSet(
@@ -41,9 +48,7 @@ class ClienteViewSet(
                 serializer.save()
         except IntegrityError:
             # Otro cliente con el mismo DNI o CUIT se guardó al mismo tiempo.
-            raise serializers.ValidationError(
-                {"detail": "Ya existe un cliente con ese DNI o CUIT."}
-            )
+            raise Conflicto()
 
     def perform_create(self, serializer):
         self.guardar(serializer)

@@ -8,6 +8,14 @@ class CajaSerializer(serializers.ModelSerializer):
         model = Caja
         fields = ("id_caja", "nombre_caja", "activa")
 
+    def validate_nombre_caja(self, nombre):
+        repetidas = Caja.objects.filter(nombre_caja__iexact=nombre)
+        if self.instance is not None:
+            repetidas = repetidas.exclude(pk=self.instance.pk)
+        if repetidas.exists():
+            raise serializers.ValidationError("Ya existe una caja con ese nombre.")
+        return nombre
+
 
 class AperturaCajaSerializer(serializers.ModelSerializer):
     id_caja = serializers.PrimaryKeyRelatedField(

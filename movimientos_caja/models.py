@@ -59,6 +59,8 @@ class MovimientoCaja(models.Model):
                 condition=models.Q(tipo_movimiento__in=TipoMovimiento.values),
                 name="movimiento_tipo_valido",
             ),
+            # Un cobro genera un solo movimiento de caja.
+            models.UniqueConstraint(fields=["cobro"], name="movimiento_cobro_unico"),
         ]
 
     def clean(self):
@@ -131,7 +133,7 @@ class CierreCaja(models.Model):
         ordering = ["-fecha_hora_cierre", "-id_cierre"]
         constraints = [
             # Una apertura se cierra una sola vez.
-            models.UniqueConstraint(fields=["apertura"], name="un_cierre_por_apertura"),
+            models.UniqueConstraint(fields=["apertura"], name="cierre_unico_por_apertura"),
             models.CheckConstraint(
                 condition=models.Q(efectivo_contado__gte=0),
                 name="cierre_efectivo_no_negativo",
@@ -152,7 +154,8 @@ class CierreCaja(models.Model):
 
     def save(self, *args, **kwargs):
         if self.pk is not None:
-            # Un cierre ya hecho no se recalcula ni cambia de apertura.
+            # Si se corrige el efectivo contado, la diferencia tiene que acompañar.
+            self.diferencia = self.efectivo_contado - self.saldo_esperado
             return super().save(*args, **kwargs)
 
         from cajas.models import AperturaCaja

@@ -1,6 +1,6 @@
 import re
 
-from django.core.exceptions import ValidationError
+from django.core.exceptions import NON_FIELD_ERRORS, ValidationError
 from django.db import models
 from django.db.models import Q
 
@@ -106,6 +106,24 @@ class Cliente(models.Model):
             texto = f"{self.nombre} {self.apellido}".strip()
 
         return texto or f"Cliente #{self.pk}"
+
+    def validate_constraints(self, exclude=None):
+        # Django informa las restricciones con condición como error general;
+        # se pasan al campo (dni / cuit) para que el formulario lo marque.
+        try:
+            super().validate_constraints(exclude=exclude)
+        except ValidationError as error:
+            campo_de = {
+                c.violation_error_message: c.fields[0]
+                for c in self._meta.constraints
+                if isinstance(c, models.UniqueConstraint) and c.fields
+            }
+            errores = {}
+            for campo, mensajes in error.message_dict.items():
+                for mensaje in mensajes:
+                    destino = campo_de.get(mensaje, campo) if campo == NON_FIELD_ERRORS else campo
+                    errores.setdefault(destino, []).append(mensaje)
+            raise ValidationError(errores)
 
     def clean(self):
         super().clean()

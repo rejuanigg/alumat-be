@@ -84,6 +84,12 @@ class CajaTestCase(TestCase):
         with self.assertRaises(ValidationError):
             self.movimiento(TipoMovimiento.SALIDA, "500", cobro=cobro)
 
+    def test_un_cobro_genera_un_solo_movimiento(self):
+        cobro = self.cobro(MetodoPago.EFECTIVO, "B-4")
+        self.movimiento(TipoMovimiento.ENTRADA, "500", cobro=cobro)
+        with self.assertRaises(ValidationError):
+            self.movimiento(TipoMovimiento.ENTRADA, "500", cobro=cobro)
+
     def test_monto_debe_ser_positivo(self):
         with self.assertRaises(ValidationError):
             self.movimiento(TipoMovimiento.ENTRADA, "0")
@@ -133,11 +139,36 @@ class CajaApiTestCase(CajaTestCase, APITestCase):
         )
         self.assertEqual(r.status_code, 409)
 
-    def test_no_se_modifican_ni_borran(self):
+    def test_cobro_repetido_por_api_da_400(self):
+        cobro = self.cobro(MetodoPago.EFECTIVO, "B-5")
+        datos = {"id_apertura": self.apertura.pk, "id_cobro": cobro.pk,
+                 "tipo_movimiento": "ENTRADA", "concepto": "cobro", "monto": "500.00"}
+        self.assertEqual(self.post("/api/movimiento-caja/", datos).status_code, 201)
+        r = self.post("/api/movimiento-caja/", datos)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("id_cobro", r.json())
+
+    def test_cierre_se_corrige_pero_nada_se_borra(self):
         cierre = self.cerrar("1000")
         url = f"/api/cierre-caja/{cierre.pk}/"
         self.assertEqual(self.client.delete(url).status_code, 405)
+        r = self.client.patch(url, {"efectivo_contado": "990"}, format="json")
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()["diferencia"], "-10.00")
+        otra = AperturaCaja.objects.create(
+            caja=Caja.objects.create(nombre_caja="Otra"),
+            usuario=self.usuario,
+            monto_inicial=Decimal("0"),
+        )
+        r = self.client.patch(url, {"id_apertura": otra.pk}, format="json")
+        self.assertEqual(r.status_code, 400)
+        movimiento = self.post(
+            "/api/movimiento-caja/",
+            {"id_apertura": otra.pk, "tipo_movimiento": "ENTRADA",
+             "concepto": "x", "monto": "1.00"},
+        ).json()
+        url = f"/api/movimiento-caja/{movimiento['id_movimiento']}/"
+        self.assertEqual(self.client.delete(url).status_code, 405)
         self.assertEqual(
-            self.client.patch(url, {"efectivo_contado": "5"}, format="json").status_code,
-            405,
+            self.client.patch(url, {"monto": "5"}, format="json").status_code, 405
         )

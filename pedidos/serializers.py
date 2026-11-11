@@ -1,3 +1,4 @@
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import APIException
 from clientes.models import Cliente
@@ -37,6 +38,21 @@ class PedidoSerializer(serializers.ModelSerializer):
             "estado",
             "observaciones",
         )
+
+    def validate_id_cliente(self, cliente):
+        cambia = self.instance is None or cliente != self.instance.cliente
+        if cambia and not cliente.activo:
+            raise serializers.ValidationError(
+                "No se puede asignar un pedido a un cliente inactivo."
+            )
+        return cliente
+
+    def validate_fecha_pedido(self, fecha):
+        if fecha > timezone.localdate():
+            raise serializers.ValidationError(
+                "La fecha del pedido no puede ser posterior a hoy."
+            )
+        return fecha
 
     def validate_estado(self, estado):
         if estado == Pedido.Estado.CANCELADO:
@@ -100,10 +116,46 @@ class DetallePedidoSerializer(serializers.ModelSerializer):
         )
 
     def validate(self, attrs):
-        producto = attrs.get("producto", getattr(self.instance, "producto", None))
-        diseno = attrs.get("diseno", getattr(self.instance, "diseno", None))
+        def valor(campo):
+            return attrs.get(campo, getattr(self.instance, campo, None))
+
+        producto = valor("producto")
+        diseno = valor("diseno")
         if producto and diseno and diseno.producto_id != producto.pk:
             raise serializers.ValidationError(
                 {"id_diseno": "El diseño elegido no corresponde al producto."}
             )
+        # Un producto o diseño desactivado no se puede agregar a un pedido.
+        errores = {}
+        if "producto" in attrs and not producto.activo and (
+            self.instance is None or producto != self.instance.producto
+        ):
+            errores["id_producto"] = "El producto está inactivo."
+        if "diseno" in attrs and not diseno.activo and (
+            self.instance is None or diseno != self.instance.diseno
+        ):
+            errores["id_diseno"] = "El diseño está inactivo."
+        if errores:
+            raise serializers.ValidationError(errores)
+
+        # Dos renglones idénticos en el mismo pedido se cargan como uno solo
+        # con más cantidad.
+        pedido = self.context.get("pedido") or getattr(self.instance, "pedido", None)
+        if pedido is not None:
+            iguales = DetallePedido.objects.filter(
+                pedido=pedido,
+                producto=producto,
+                diseno=diseno,
+                ancho=valor("ancho"),
+                alto=valor("alto"),
+                tipo_vidrio__iexact=valor("tipo_vidrio"),
+                color_aluminio__iexact=valor("color_aluminio"),
+                tipo_revestimiento__iexact=valor("tipo_revestimiento"),
+            )
+            if self.instance is not None:
+                iguales = iguales.exclude(pk=self.instance.pk)
+            if iguales.exists():
+                raise serializers.ValidationError(
+                    "El pedido ya tiene un detalle igual. Modificá su cantidad."
+                )
         return attrs

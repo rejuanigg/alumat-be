@@ -41,7 +41,9 @@ class MovimientoCajaViewSet(SoloRegistrarYConsultar):
     serializer_class = MovimientoCajaSerializer
 
 
-class CierreCajaViewSet(SoloRegistrarYConsultar):
+class CierreCajaViewSet(mixins.UpdateModelMixin, SoloRegistrarYConsultar):
+    """Un cierre admite corregir el efectivo contado; no se borra."""
+
     queryset = CierreCaja.objects.all()
     serializer_class = CierreCajaSerializer
     mensaje_conflicto = "La apertura ya está cerrada."

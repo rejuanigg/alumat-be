@@ -73,8 +73,10 @@ class ClienteApiTests(APITestCase):
         self.crear(EMPRESA)
         r = self.crear({**PARTICULAR, "dni": "30123456"})
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("dni", r.data)
         r = self.crear({**EMPRESA, "cuit": "20123456786"})
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("cuit", r.data)
 
     def test_varias_empresas_sin_dni(self):
         self.assertEqual(self.crear(EMPRESA).status_code, status.HTTP_201_CREATED)
@@ -87,6 +89,8 @@ class ClienteApiTests(APITestCase):
         r = self.client.patch(f"{URL}{id_cliente}/", {"tipo_cliente": "empresa"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
         r = self.client.patch(f"{URL}{id_cliente}/", {"telefono": "111"}, format="json")
+        self.assertEqual(r.status_code, status.HTTP_400_BAD_REQUEST)
+        r = self.client.patch(f"{URL}{id_cliente}/", {"telefono": "387 555-1111"}, format="json")
         self.assertEqual(r.status_code, status.HTTP_200_OK, r.data)
 
     def test_no_se_borra_se_desactiva(self):
@@ -103,6 +107,10 @@ class ClienteApiTests(APITestCase):
         Cliente.objects.filter(pk=id_empresa).update(activo=False)
         self.assertEqual(len(self.client.get(URL, {"activo": "true"}).data), 1)
         self.assertEqual(len(self.client.get(URL, {"tipo_cliente": "empresa"}).data), 1)
+
+    def test_correo_en_minusculas(self):
+        r = self.crear({**PARTICULAR, "correo_electronico": "Ana@Example.COM"})
+        self.assertEqual(r.data["correo_electronico"], "ana@example.com")
 
     def test_str(self):
         self.assertEqual(str(Cliente(tipo_cliente="particular", nombre="Ana", apellido="Pérez")), "Ana Pérez")

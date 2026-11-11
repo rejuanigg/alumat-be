@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models.functions import Lower
 
 
 class Producto(models.Model):
@@ -11,6 +12,15 @@ class Producto(models.Model):
 
     class Meta:
         ordering = ["nombre", "id_producto"]
+        constraints = [
+            # Un mismo nombre no se repite dentro del mismo tipo de abertura,
+            # sin importar mayúsculas.
+            models.UniqueConstraint(
+                Lower("nombre"),
+                Lower("tipo_abertura"),
+                name="producto_nombre_tipo_unico",
+            ),
+        ]
 
     def __str__(self):
         return self.nombre
@@ -34,6 +44,14 @@ class Diseno(models.Model):
     class Meta:
         verbose_name = "diseño"
         ordering = ["nombre_diseno", "id_diseno"]
+        constraints = [
+            # Un producto no puede tener dos diseños con el mismo nombre.
+            models.UniqueConstraint(
+                "producto",
+                Lower("nombre_diseno"),
+                name="diseno_nombre_unico_por_producto",
+            ),
+        ]
 
     def __str__(self):
         return self.nombre_diseno

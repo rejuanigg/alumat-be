@@ -65,9 +65,16 @@ class MovimientoCajaSerializer(serializers.ModelSerializer):
         )
         # La fecha la pone el servidor.
         read_only_fields = ("fecha_movimiento",)
+        # El cobro repetido se informa en validate() con un mensaje claro.
+        validators = []
 
     def validate(self, attrs):
         exigir_apertura_abierta(attrs["apertura"])
+        cobro = attrs.get("cobro")
+        if cobro is not None and MovimientoCaja.objects.filter(cobro=cobro).exists():
+            raise serializers.ValidationError(
+                {"id_cobro": "Ese cobro ya tiene un movimiento de caja."}
+            )
         # Reutiliza las reglas del modelo (cobro en efectivo, cobro = entrada).
         try:
             MovimientoCaja(**attrs).clean()
@@ -110,5 +117,10 @@ class CierreCajaSerializer(serializers.ModelSerializer):
         validators = []
 
     def validate(self, attrs):
-        exigir_apertura_abierta(attrs["apertura"])
+        if self.instance is None:
+            exigir_apertura_abierta(attrs["apertura"])
+        elif attrs.get("apertura", self.instance.apertura) != self.instance.apertura:
+            raise serializers.ValidationError(
+                {"id_apertura": "La apertura de un cierre no se puede modificar."}
+            )
         return attrs

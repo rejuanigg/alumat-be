@@ -67,6 +67,12 @@ class DetallePedidoViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return DetallePedido.objects.filter(pedido=self.get_pedido())
 
+    def get_serializer_context(self):
+        contexto = super().get_serializer_context()
+        if "id_pedido" in self.kwargs:
+            contexto["pedido"] = self.get_pedido()
+        return contexto
+
     def exigir_pedido_pendiente(self):
         if self.get_pedido().estado != Pedido.Estado.PENDIENTE:
             raise Conflicto("El pedido no está pendiente y no puede modificarse.")
