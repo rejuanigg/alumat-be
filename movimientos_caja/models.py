@@ -40,11 +40,22 @@ class MovimientoCaja(models.Model):
         db_table = 'MOVIMIENTO_CAJAS'
         verbose_name = 'Movimiento de Caja'
         verbose_name_plural = 'Movimientos de Caja'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(monto__gt=0),
+                name='movimiento_monto_positivo',
+            ),
+            # Un cobro genera un solo movimiento de caja.
+            models.UniqueConstraint(
+                fields=['id_cobro'],
+                name='movimiento_cobro_unico',
+            ),
+        ]
 
     def clean(self):
         super().clean()
         if self.id_cobro:
-            medio = getattr(self.id_cobro, 'medio_pago', '').lower()
+            medio = getattr(self.id_cobro, 'metodo_pago', '').lower()
             if any(pago in medio for pago in ['transferencia', 'tarjeta']):
                 raise ValidationError(
                     "Los cobros por transferencia o tarjeta no deben generar movimientos de efectivo."
@@ -82,6 +93,17 @@ class CierreCaja(models.Model):
         db_table = 'CIERRE_CAJAS'
         verbose_name = 'Cierre de Caja'
         verbose_name_plural = 'Cierres de Caja'
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(efectivo_contado__gte=0),
+                name='cierre_efectivo_no_negativo',
+            ),
+            # Una apertura se cierra una sola vez.
+            models.UniqueConstraint(
+                fields=['id_apertura'],
+                name='cierre_unico_por_apertura',
+            ),
+        ]
 
     def calcular_y_cerrar(self):
         movimientos = self.id_apertura.movimientos.all()
@@ -97,6 +119,9 @@ class CierreCaja(models.Model):
     def save(self, *args, **kwargs):
         if not self.pk:
             self.calcular_y_cerrar()
+        else:
+            # Si se corrige el efectivo contado, la diferencia tiene que acompañar.
+            self.diferencia = self.efectivo_contado - self.saldo_esperado
         super().save(*args, **kwargs)
 
     def __str__(self):

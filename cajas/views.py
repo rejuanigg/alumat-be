@@ -33,6 +33,20 @@ class CajaViewSet(
             qs = qs.filter(activa=valor == "true")
         return qs
 
+    def perform_create(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError:
+            raise Conflicto("Ya existe una caja con ese nombre.")
+
+    def perform_update(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError:
+            raise Conflicto("Ya existe una caja con ese nombre.")
+
     @action(detail=True, methods=["get"])
     def aperturas(self, request, pk=None):
         caja = self.get_object()

@@ -1,9 +1,17 @@
+from django.db import IntegrityError, transaction
 from rest_framework import mixins, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Diseno, Producto
 from .serializers import DisenoSerializer, ProductoSerializer
+
+
+class Conflicto(APIException):
+    status_code = 409
+    default_detail = "Otro registro se guardó con los mismos datos. Revisá e intentá de nuevo."
+    default_code = "conflicto"
 
 
 def filtrar_activo(queryset, request, campo="activo"):
@@ -23,6 +31,22 @@ class SinBorradoViewSet(
     """No ofrece DELETE: los registros se desactivan para conservar el historial."""
 
     permission_classes = [IsAuthenticated]
+
+    # El serializer avisa los repetidos con un 400 claro; si dos personas
+    # guardan lo mismo a la vez, la base de datos rechaza el segundo.
+    def perform_create(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError:
+            raise Conflicto()
+
+    def perform_update(self, serializer):
+        try:
+            with transaction.atomic():
+                serializer.save()
+        except IntegrityError:
+            raise Conflicto()
 
 
 class ProductoViewSet(SinBorradoViewSet):

@@ -3,6 +3,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 
@@ -14,6 +15,11 @@ class Caja(models.Model):
 
     class Meta:
         ordering = ["nombre_caja", "id_caja"]
+        constraints = [
+            models.UniqueConstraint(
+                Lower("nombre_caja"), name="caja_nombre_unico"
+            ),
+        ]
 
     def __str__(self):
         return self.nombre_caja

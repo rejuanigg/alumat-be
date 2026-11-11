@@ -55,6 +55,21 @@ class Cliente(models.Model):
         auto_now_add=True
     )
 
+    class Meta:
+        constraints = [
+            # El DNI y el CUIT identifican al cliente: no se pueden repetir.
+            models.UniqueConstraint(
+                fields=["dni"],
+                condition=~models.Q(dni=""),
+                name="cliente_dni_unico",
+            ),
+            models.UniqueConstraint(
+                fields=["cuit"],
+                condition=~models.Q(cuit=""),
+                name="cliente_cuit_unico",
+            ),
+        ]
+
     def __str__(self):
         if self.tipo_cliente == self.TipoCliente.EMPRESA:
             return self.razon_social
