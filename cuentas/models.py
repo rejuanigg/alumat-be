@@ -47,6 +47,10 @@ class Usuario(AbstractUser):
                 condition=models.Q(is_active=False)
                 | models.Q(estado="aprobado"),
                 name="activo_solo_aprobado",
+                violation_error_message=(
+                    "Solo una cuenta aprobada puede ingresar. "
+                    "Aprobala desde Solicitudes de acceso."
+                ),
             ),
         ]
 

@@ -2,13 +2,23 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APITestCase
 
 from cajas.models import AperturaCaja, Caja
 from ventas.models import Cobro, MetodoPago, Venta
 
 from .models import CierreCaja, MovimientoCaja, TipoMovimiento
+
+# Para las pruebas que renderizan páginas HTML (admin, 404) sin collectstatic.
+PAGINAS_HTML = override_settings(
+    SECURE_SSL_REDIRECT=False,
+    STORAGES={
+        "staticfiles": {
+            "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"
+        }
+    },
+)
 
 
 class CajaTestCase(TestCase):
@@ -98,6 +108,24 @@ class CajaTestCase(TestCase):
         self.assertEqual(str(self.venta), f"Venta #{self.venta.pk}")
 
 
+@PAGINAS_HTML
+class CajaAdminTestCase(CajaTestCase):
+    def test_admin_de_caja_es_de_solo_lectura(self):
+        admin = get_user_model().objects.create_superuser(
+            "jefa", "jefa@example.test", "clave-de-prueba-123"
+        )
+        self.client.force_login(admin)
+        cierre = self.cerrar("1000")
+        base = "/admin/movimientos_caja/cierrecaja/"
+        self.assertEqual(self.client.get(base).status_code, 200)
+        self.assertEqual(self.client.get(f"{base}add/").status_code, 403)
+        self.assertEqual(self.client.get(f"{base}{cierre.pk}/delete/").status_code, 403)
+        # Puede verlo, pero sin guardar cambios.
+        r = self.client.post(f"{base}{cierre.pk}/change/", {"efectivo_contado": "1"})
+        self.assertEqual(r.status_code, 403)
+
+
+@PAGINAS_HTML
 class CajaApiTestCase(CajaTestCase, APITestCase):
     def setUp(self):
         super().setUp()
@@ -138,6 +166,13 @@ class CajaApiTestCase(CajaTestCase, APITestCase):
              "concepto": "tarde", "monto": "1.00"},
         )
         self.assertEqual(r.status_code, 409)
+
+    def test_unico_procedimiento_de_cierre(self):
+        # Ya no existe la vía que cerraba sin registrar el efectivo contado.
+        r = self.post(f"/api/aperturas/{self.apertura.pk}/cerrar/", {})
+        self.assertEqual(r.status_code, 404)
+        self.apertura.refresh_from_db()
+        self.assertEqual(self.apertura.estado, AperturaCaja.Estado.ABIERTA)
 
     def test_cobro_repetido_por_api_da_400(self):
         cobro = self.cobro(MetodoPago.EFECTIVO, "B-5")

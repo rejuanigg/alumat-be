@@ -59,7 +59,8 @@ class AperturaCajaViewSet(
     mixins.RetrieveModelMixin,
     viewsets.GenericViewSet,
 ):
-    """Una apertura no se modifica ni se borra: solo se registra y se cierra."""
+    """Una apertura no se modifica ni se borra: se registra aquí y se cierra
+    únicamente con POST /api/cierre-caja/, que registra el efectivo contado."""
 
     serializer_class = AperturaCajaSerializer
     permission_classes = [IsAuthenticated]
@@ -84,12 +85,3 @@ class AperturaCajaViewSet(
         except IntegrityError:
             # Otra apertura de la misma caja se registró al mismo tiempo.
             raise Conflicto("La caja ya tiene una apertura abierta.")
-
-    @action(detail=True, methods=["post"])
-    def cerrar(self, request, pk=None):
-        apertura = self.get_object()
-        if apertura.estado == AperturaCaja.Estado.CERRADA:
-            raise Conflicto("La apertura ya está cerrada.")
-        apertura.estado = AperturaCaja.Estado.CERRADA
-        apertura.save(update_fields=["estado"])
-        return Response(AperturaCajaSerializer(apertura).data)

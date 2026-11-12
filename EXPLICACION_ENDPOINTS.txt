@@ -223,7 +223,6 @@ Métodos importantes que se usaron:
       GET  /api/productos/{id}/disenos/   diseños de un producto
       GET  /api/cajas/{id}/aperturas/     aperturas de una caja
       POST /api/pedidos/{id}/cancelar/    cancelar un pedido
-      POST /api/aperturas/{id}/cerrar/    cerrar una apertura
 
   Ejemplo:
 
@@ -252,7 +251,8 @@ Métodos importantes que se usaron:
 
   Se usa cuando la operación es válida pero el estado actual no la
   permite. Por ejemplo: modificar un pedido que ya está en producción,
-  cancelar un pedido entregado o cerrar una apertura ya cerrada.
+  cancelar un pedido entregado o cerrar una apertura ya cerrada
+  (POST /api/cierre-caja/).
 
 
 6. PIEZA 3: URLS.PY (ROUTERS)
@@ -350,8 +350,9 @@ CAJAS Y APERTURAS
 - No se puede abrir una caja inactiva ni una caja que ya tiene una
   apertura abierta (400).
 - Una apertura no se modifica ni se borra (405): solo se registra y se
-  cierra con POST /api/aperturas/{id}/cerrar/. Cerrar una ya cerrada
-  da 409.
+  cierra con POST /api/cierre-caja/, que registra el efectivo contado y
+  calcula la diferencia. Es el único procedimiento de cierre. Cerrar una
+  ya cerrada, o cargar un movimiento en ella, da 409.
 - Si dos personas abren la misma caja exactamente al mismo tiempo, la
   base de datos rechaza la segunda por su índice único y la API
   responde 409.
@@ -413,7 +414,16 @@ CAJAS Y APERTURAS
                                             id_usuario, estado)
   POST   /api/aperturas/                    abre una caja
   GET    /api/aperturas/{id_apertura}/      consulta
-  POST   /api/aperturas/{id_apertura}/cerrar/   cierra
+
+MOVIMIENTOS Y CIERRES DE CAJA
+  GET    /api/movimiento-caja/              lista
+  POST   /api/movimiento-caja/              registra un movimiento
+  GET    /api/movimiento-caja/{id}/         consulta
+  GET    /api/cierre-caja/                  lista
+  POST   /api/cierre-caja/                  cierra la apertura (único
+                                            procedimiento de cierre)
+  GET    /api/cierre-caja/{id}/             consulta
+  PATCH  /api/cierre-caja/{id}/             corrige el efectivo contado
 
 El detalle de cada endpoint (JSON que se envía, JSON que se recibe y
 errores) de productos y pedidos está en:

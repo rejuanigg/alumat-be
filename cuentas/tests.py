@@ -142,6 +142,23 @@ class CuentasTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             Usuario.objects.filter(pk=self.usuario.pk).update(is_active=True)
 
+    def test_cuenta_pendiente_no_se_habilita_sin_aprobar(self):
+        from django.core.exceptions import ValidationError
+
+        self.usuario.is_active = True
+        with self.assertRaisesMessage(ValidationError, "Solo una cuenta aprobada"):
+            self.usuario.full_clean()
+
+    def test_admin_no_crea_ni_borra_usuarios(self):
+        self.client.force_login(self.admin)
+        self.assertEqual(
+            self.client.get("/admin/cuentas/usuario/add/").status_code, 403
+        )
+        self.assertEqual(
+            self.client.get(f"/admin/cuentas/usuario/{self.usuario.pk}/delete/").status_code,
+            403,
+        )
+
     def test_deshabilitar_invalida_acceso_de_sesion(self):
         self.client.force_login(self.admin)
         Usuario.objects.filter(pk=self.admin.pk).update(is_active=False)

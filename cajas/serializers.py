@@ -35,7 +35,7 @@ class AperturaCajaSerializer(serializers.ModelSerializer):
             "monto_inicial",
             "estado",
         )
-        # La fecha y hora la pone el servidor; el estado cambia con /cerrar/.
+        # La fecha y hora la pone el servidor; el estado cambia con POST /api/cierre-caja/.
         read_only_fields = ("fecha_hora_apertura", "estado")
         # "Una apertura abierta por caja" se valida en validate() con un mensaje
         # claro; la base de datos lo sigue garantizando con su índice único.
