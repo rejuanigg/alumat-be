@@ -1,3 +1,4 @@
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 from rest_framework import mixins, viewsets
@@ -7,6 +8,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import DetallePedido, Pedido
 from .serializers import Conflicto, DetallePedidoSerializer, PedidoSerializer
+from .stock import sincronizar_stock
 
 
 class PedidoViewSet(
@@ -43,13 +45,32 @@ class PedidoViewSet(
         # El responsable es siempre el usuario autenticado.
         serializer.save(usuario=self.request.user)
 
+    def bloquear(self, pedido):
+        """Bloquea la fila del pedido y verifica que nadie lo cambió mientras tanto."""
+        actual = Pedido.objects.select_for_update().get(pk=pedido.pk)
+        if actual.estado != pedido.estado:
+            raise Conflicto("El pedido cambió mientras lo editabas. Volvé a cargarlo.")
+        pedido.stock_descontado = actual.stock_descontado
+        return pedido
+
+    def perform_update(self, serializer):
+        with transaction.atomic():
+            self.bloquear(serializer.instance)
+            # Al dejar de estar pendiente se descuenta el stock; si no alcanza,
+            # Conflicto deshace también el cambio de estado.
+            sincronizar_stock(serializer.save())
+
     @action(detail=True, methods=["post"])
     def cancelar(self, request, pk=None):
         pedido = self.get_object()
         if pedido.estado in (Pedido.Estado.CANCELADO, Pedido.Estado.ENTREGADO):
             raise Conflicto(f"Un pedido {pedido.estado} no se puede cancelar.")
-        pedido.estado = Pedido.Estado.CANCELADO
-        pedido.save(update_fields=["estado"])
+        with transaction.atomic():
+            self.bloquear(pedido)
+            pedido.estado = Pedido.Estado.CANCELADO
+            pedido.save(update_fields=["estado"])
+            # Devuelve lo que se había descontado, si correspondía.
+            sincronizar_stock(pedido)
         return Response(PedidoSerializer(pedido).data)
 
 

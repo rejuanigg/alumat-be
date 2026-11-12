@@ -21,9 +21,12 @@ Sección del contrato de API de ALUMAT correspondiente al Proceso 2: Gestión de
 | `nombre` | texto (máx. 120) | obligatorio |
 | `tipo_abertura` | texto (máx. 80) | obligatorio |
 | `descripcion` | texto | opcional (por defecto `""`) |
+| `stock` | entero ≥ 0 | por defecto `0`; cantidad de aberturas disponibles, sin importar sus medidas |
 | `activo` | booleano | por defecto `true` |
 
 FK: ninguna.
+
+El stock lo descuentan los pedidos al pasar a producción y lo devuelven si se cancelan (ver `CONTRATO_API_PEDIDOS.md`). Para reponer mercadería se edita con `PATCH {"stock": 25}`.
 
 ### DISEÑO
 
@@ -102,7 +105,7 @@ Cuerpo:
 
 #### `PUT` / `PATCH /api/productos/{id_producto}/`
 
-Campos editables: `nombre`, `tipo_abertura`, `descripcion` y `activo`. `id_producto` es de solo lectura.
+Campos editables: `nombre`, `tipo_abertura`, `descripcion`, `stock` y `activo`. `id_producto` es de solo lectura.
 
 Desactivar:
 
@@ -173,6 +176,7 @@ Registro devuelto por `GET /api/productos/1/`:
   "nombre": "Ventana corrediza",
   "tipo_abertura": "corrediza",
   "descripcion": "Ventana de aluminio de dos hojas corredizas.",
+  "stock": 10,
   "activo": true
 }
 ```

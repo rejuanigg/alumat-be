@@ -1,28 +1,27 @@
 {% extends 'base.html' %}
 
 {% block title %}
-Catálogo
+Productos
 {% endblock %}
 
 {% block content %}
 
-<p class="antetitulo">Información compartida</p>
+<p class="antetitulo">Aberturas</p>
 <div class="encabezado">
 <div>
-<h1>Catálogo de productos</h1>
-<p>Consultá y actualizá los productos de la organización.</p>
+<h1>Productos</h1>
+<p>Consultá los productos, sus diseños y el stock disponible.</p>
 </div>
-<a class="boton" href="{% url 'catalogo:crear' %}">Agregar producto</a>
+<a class="boton" href="{% url 'productos:crear' %}">Agregar producto</a>
 </div>
 <div class="herramientas">
 <form method="get" class="busqueda">
-<label for="buscar">Buscar por nombre o código</label>
+<label for="buscar">Buscar por nombre o tipo de abertura</label>
 <div>
 <input id="buscar" name="q" value="{{ request.GET.q }}" maxlength="100" type="search">
 <button type="submit">Buscar</button>
 </div>
 </form>
-<a href="{% url 'catalogo:categorias' %}">Gestionar categorías →</a>
 </div>
 
 {% if object_list %}
@@ -32,8 +31,8 @@ Catálogo
 <thead>
 <tr>
 <th scope="col">Producto</th>
-<th scope="col">Categoría</th>
-<th scope="col">Precio</th>
+<th scope="col">Tipo de abertura</th>
+<th scope="col">Diseños activos</th>
 <th scope="col">Stock</th>
 <th scope="col">Acción</th>
 </tr>
@@ -45,13 +44,15 @@ Catálogo
 <a href="{{ p.get_absolute_url }}">
 <strong>{{ p.nombre }}</strong>
 </a>
-<small>{{ p.codigo }}</small>
+{% if not p.activo %}
+<small>Inactivo</small>
+{% endif %}
 </td>
-<td>{{ p.categoria }}</td>
-<td class="numero">$ {{ p.precio }}</td>
+<td>{{ p.tipo_abertura }}</td>
+<td class="numero">{{ p.cantidad_disenos }}</td>
 <td class="numero">{{ p.stock }}</td>
 <td>
-<a href="{% url 'catalogo:editar' p.pk %}" aria-label="Editar {{ p.nombre }}">Editar</a>
+<a href="{% url 'productos:editar' p.pk %}" aria-label="Editar {{ p.nombre }}">Editar</a>
 </td>
 </tr>
 {% endfor %}
@@ -70,12 +71,12 @@ Todavía no hay productos
 </h2>
 <p>
 {% if request.GET.q %}
-Probá con otro nombre o código.
+Probá con otro nombre o tipo de abertura.
 {% else %}
-Comenzá creando una categoría y un producto.
+Comenzá agregando el primer producto y sus diseños.
 {% endif %}
 </p>
-<a href="{% url 'catalogo:lista' %}">Ver todo el catálogo</a>
+<a href="{% url 'productos:lista' %}">Ver todos los productos</a>
 </div>
 {% endif %}
 

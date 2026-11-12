@@ -1,0 +1,20 @@
+{% extends 'base.html' %}
+
+{% block title %}
+{% if object %}Editar{% else %}Agregar{% endif %} producto
+{% endblock %}
+
+{% block content %}
+
+<div class="form-contenedor">
+<a class="volver" href="{% if object %}{{ object.get_absolute_url }}{% else %}{% url 'productos:lista' %}{% endif %}">← Volver</a>
+<p class="antetitulo">Productos</p>
+<h1>{% if object %}Editar{% else %}Agregar{% endif %} producto</h1>
+<p>Un producto inactivo no se borra: se conserva en los pedidos anteriores.</p>
+<form method="post" class="panel">{% csrf_token %}{% include 'componentes/formulario.html' %}<div class="acciones">
+<button type="submit">Guardar producto</button>
+<a href="{% url 'productos:lista' %}">Cancelar</a>
+</div>
+</form>
+</div>
+{% endblock %}

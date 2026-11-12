@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models.functions import Lower
+from django.urls import reverse
 
 
 class Producto(models.Model):
@@ -7,6 +8,9 @@ class Producto(models.Model):
     nombre = models.CharField(max_length=120)
     tipo_abertura = models.CharField("tipo de abertura", max_length=80)
     descripcion = models.TextField("descripción", blank=True)
+    # Cantidad de aberturas disponibles, sin importar sus medidas. Se descuenta
+    # cuando un pedido pasa a producción y se devuelve si se cancela.
+    stock = models.PositiveIntegerField(default=0)
     # Se desactiva en lugar de borrar para conservar el historial.
     activo = models.BooleanField(default=True)
 
@@ -19,11 +23,20 @@ class Producto(models.Model):
                 Lower("nombre"),
                 Lower("tipo_abertura"),
                 name="producto_nombre_tipo_unico",
+                violation_error_message=(
+                    "Ya existe un producto con ese nombre y tipo de abertura."
+                ),
+            ),
+            models.CheckConstraint(
+                condition=models.Q(stock__gte=0), name="producto_stock_no_negativo"
             ),
         ]
 
     def __str__(self):
         return self.nombre
+
+    def get_absolute_url(self):
+        return reverse("productos:detalle", args=[self.pk])
 
 
 class Diseno(models.Model):
@@ -50,6 +63,7 @@ class Diseno(models.Model):
                 "producto",
                 Lower("nombre_diseno"),
                 name="diseno_nombre_unico_por_producto",
+                violation_error_message="El producto ya tiene un diseño con ese nombre.",
             ),
         ]
 

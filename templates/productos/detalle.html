@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block title %}
+{{ object.nombre }}
+{% endblock %}
+
+{% block content %}
+
+<a class="volver" href="{% url 'productos:lista' %}">← Volver a productos</a>
+<p class="antetitulo">{{ object.tipo_abertura }}{% if not object.activo %} · Inactivo{% endif %}</p>
+<div class="encabezado">
+<h1>{{ object.nombre }}</h1>
+<a class="boton" href="{% url 'productos:editar' object.pk %}">Editar producto</a>
+</div>
+<div class="detalle panel">
+<dl>
+<div>
+<dt>Stock disponible</dt>
+<dd>{{ object.stock }} abertura{{ object.stock|pluralize:'s' }}</dd>
+</div>
+<div>
+<dt>Estado</dt>
+<dd>{{ object.activo|yesno:'Activo,Inactivo' }}</dd>
+</div>
+</dl>
+<h2>Descripción</h2>
+<div class="prosa">{{ object.descripcion|default:'Sin descripción.'|linebreaksbr }}</div>
+</div>
+
+<div class="encabezado">
+<h2>Diseños</h2>
+{% if object.activo %}
+<a class="boton" href="{% url 'productos:diseno_crear' object.pk %}">Agregar diseño</a>
+{% endif %}
+</div>
+<div class="lista-recientes">
+{% for d in object.disenos.all %}
+<div class="fila">
+<strong>{{ d.nombre_diseno }}</strong>
+<span>
+{% if not d.activo %}Inactivo · {% endif %}<a href="{% url 'productos:diseno_editar' d.pk %}">Editar</a>
+</span>
+</div>{% empty %}<div class="vacio">
+<h2>Todavía no hay diseños</h2>
+<p>Agregá los diseños en los que se fabrica este producto.</p>
+</div>
+{% endfor %}
+</div>
+
+{% endblock %}

@@ -116,6 +116,14 @@ Los detalles se gestionan siempre **dentro de su pedido** (`/api/pedidos/{id_ped
 - Un pedido `cancelado` o `entregado` no admite cambios.
 - Para cancelar se usa `POST .../cancelar/`. Enviar `"estado": "cancelado"` por `PATCH` se rechaza con `400`, así la cancelación queda como una operación explícita.
 
+### Stock
+
+- La unidad de stock es la abertura: se descuenta la `cantidad` de cada detalle, sin importar sus medidas.
+- Se descuenta cuando el pedido deja de estar `pendiente` (pasa a `en_produccion`, o directamente a `terminado` o `entregado`). Mientras está pendiente, los detalles se pueden cambiar sin tocar el stock.
+- Si no alcanza el stock de algún producto, la API responde `409` indicando cuál falta y cuánto (`"Ventana: hay 2, se necesitan 5"`). El pedido sigue `pendiente`.
+- Al cancelar un pedido que ya había descontado, se devuelve lo descontado. Cancelar uno pendiente no toca el stock.
+- Un pedido descuenta una sola vez, aunque se avance varias veces o lleguen dos pedidos de cambio al mismo tiempo.
+
 ### Pedidos
 
 #### `GET /api/pedidos/`
@@ -169,11 +177,11 @@ Ejemplo para avanzar el estado:
 - `200`: el pedido actualizado.
 - `400`: datos inválidos o estado no permitido.
 - `404`: no existe.
-- `409`: el pedido no está `pendiente` y se intenta cambiar algo que no es el estado.
+- `409`: el pedido no está `pendiente` y se intenta cambiar algo que no es el estado; no hay stock suficiente para pasarlo a producción; o el pedido cambió mientras se editaba.
 
 #### `POST /api/pedidos/{id_pedido}/cancelar/`
 
-Sin cuerpo. Pasa el pedido a `cancelado` y conserva sus detalles como historial.
+Sin cuerpo. Pasa el pedido a `cancelado`, conserva sus detalles como historial y devuelve el stock si ya se había descontado.
 
 - `200`: el pedido con `"estado": "cancelado"`.
 - `404`: no existe.

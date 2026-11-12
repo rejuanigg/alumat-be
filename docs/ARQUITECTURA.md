@@ -1,6 +1,6 @@
 # Arquitectura de ALUMAT
 
-> **Importante:** no es un backend de API. Es un Django "clásico": cada URL devuelve una **página HTML** armada con templates, no JSON. El único endpoint JSON es `/salud/`. Si los endpoints nuevos se van a consumir desde un frontend separado (web o mobile), hay que agregar una capa de API (ver el final).
+> **Importante:** el proyecto tiene dos partes. Las pantallas web (`/cuentas/`, `/productos/`, inicio) son Django "clásico": devuelven **páginas HTML** armadas con templates. La API JSON para el frontend vive bajo `/api/` y está hecha con Django REST Framework (ver `EXPLICACION_ENDPOINTS.txt`).
 
 ## Stack
 
@@ -9,14 +9,19 @@
 - **django-axes** bloquea el login después de varios intentos fallidos.
 - Toda la configuración sale de variables de entorno (`.env`, que se genera con `scripts/configurar.py`).
 
-## Estructura: 1 proyecto + 3 apps
+## Estructura: 1 proyecto + varias apps
 
 ```
-config/      → settings.py y urls.py raíz (el "cableado" general)
-cuentas/     → usuarios, registro, login y aprobación de cuentas
-catalogo/    → productos y categorías (el CRUD de negocio)
-inicio/      → dashboard (home) y healthcheck
-templates/   → HTML de todas las apps
+config/            → settings.py y urls.py raíz (el "cableado" general)
+cuentas/           → usuarios, registro, login y aprobación de cuentas
+productos/         → productos (aberturas), diseños y stock: pantallas web y API
+clientes/          → clientes particulares y empresas (API)
+pedidos/           → pedidos y sus detalles; descuenta y devuelve stock (API)
+cajas/             → cajas y aperturas (API)
+movimientos_caja/  → movimientos y cierres de caja (API)
+ventas/            → ventas y cobros
+inicio/            → dashboard (home) y healthcheck
+templates/         → HTML de las pantallas web
 ```
 
 URLs raíz en `config/urls.py`:
@@ -25,7 +30,8 @@ URLs raíz en `config/urls.py`:
 |---|---|
 | `/admin/` | Admin de Django (solo superusuario) |
 | `/cuentas/` | `cuentas.urls` |
-| `/catalogo/` | `catalogo.urls` |
+| `/productos/` | `productos.urls_web` (pantallas) |
+| `/api/` | APIs de `clientes`, `productos`, `pedidos`, `cajas` y `movimientos_caja` |
 | `/` | `inicio.urls` |
 
 ## App `cuentas`: usuarios con aprobación
@@ -55,34 +61,34 @@ URLs raíz en `config/urls.py`:
 | `solicitudes/` | `solicitudes` | superusuario |
 | `solicitudes/<pk>/resolver/` | `resolver` (solo POST) | superusuario |
 
-## App `catalogo`: CRUD de productos
+## App `productos`: aberturas, diseños y stock
 
-**Modelos** (`catalogo/models.py`):
+**Modelos** (`productos/models.py`):
 
-- `Categoria`: `nombre`, único sin importar mayúsculas.
-- `Producto`:
-  - `codigo` (único), `nombre`, `categoria` (FK), `descripcion`, `precio` (≥0), `stock`.
-  - Auditoría: `creado_por`, `actualizado_por`, `creado` y `actualizado`.
-- Las FK usan `PROTECT`: no se puede borrar una categoría que tenga productos ni un usuario que haya creado productos.
+- `Producto`: `nombre`, `tipo_abertura`, `descripcion`, `stock` (≥0) y `activo`. El nombre no se repite dentro del mismo tipo de abertura (sin importar mayúsculas).
+- `Diseno`: pertenece a un producto (`PROTECT`); su nombre no se repite dentro del producto.
+- No se borran: se desactivan (`activo=False`) para conservar los pedidos anteriores.
 
-**Vistas** (`catalogo/views.py`): todas son *class-based views* genéricas de Django (`ListView`, `CreateView`, etc.) y reutilizan dos mixins:
+**Stock** (`pedidos/stock.py`): la unidad es la abertura, sin importar sus medidas.
 
-- `SoloAdministradorMixin`: exige estar logueado y ser superusuario.
-- `GuardadoSeguroMixin`: guarda dentro de una transacción. Si hay un `IntegrityError` (por ejemplo un duplicado), muestra un error en el formulario en vez de un 500.
+- Se descuenta la suma de `cantidad` de los detalles cuando el pedido deja de estar pendiente (pasa a producción, o directo a terminado/entregado).
+- Si el pedido se cancela, se devuelve lo descontado.
+- Si no alcanza el stock de algún producto, la API responde 409 y el pedido no cambia de estado.
+- `Pedido.stock_descontado` evita descontar dos veces; la fila del pedido se bloquea con `select_for_update` mientras se cambia el estado.
+
+**Pantallas web** (`productos/vistas_web.py`, `productos/urls_web.py`): *class-based views* genéricas de Django. `GuardadoSeguroMixin` guarda dentro de una transacción y, si hay un `IntegrityError` (por ejemplo un duplicado), muestra un error en el formulario en vez de un 500.
 
 | URL | Qué hace | Acceso |
 |---|---|---|
-| `/catalogo/` | lista con búsqueda `?q=` y paginación de 12 | logueado |
-| `nuevo/`, `<pk>/`, `<pk>/editar/` | crear, ver y editar producto | logueado |
-| `<pk>/eliminar/` | borrar producto | superusuario |
-| `categorias/` | listar categorías | logueado |
-| `categorias/nueva/`, `<pk>/editar/`, `<pk>/eliminar/` | ABM de categorías | superusuario |
+| `/productos/` | lista con búsqueda `?q=` (nombre o tipo) y paginación de 12 | logueado |
+| `nuevo/`, `<pk>/`, `<pk>/editar/` | crear, ver (con sus diseños) y editar producto; desactivar desde editar | logueado |
+| `<pk>/disenos/nuevo/`, `disenos/<pk>/editar/` | agregar y editar diseños | logueado |
 
-Las validaciones de "ya existe" están en `catalogo/forms.py`. La base de datos además lo garantiza con constraints.
+La API (`/api/productos/`, `/api/disenos/`) usa los mismos modelos: ver `docs/CONTRATO_API_PRODUCTOS.md`.
 
 ## App `inicio`
 
-- `/`: `home` muestra contadores, los últimos 5 productos y, si sos admin, las solicitudes pendientes.
+- `/`: `home` muestra contadores de productos y diseños activos, los 5 productos con menos stock y, si sos admin, las solicitudes pendientes.
 - `/salud/`: healthcheck en JSON que hace un `SELECT 1`. Lo usa Docker en producción.
 - `context_processors.organizacion` agrega `SITE_NAME` a todos los templates.
 - `inicio/management/commands/cargar_demo.py` carga datos de ejemplo (`python manage.py cargar_demo`).
@@ -94,23 +100,23 @@ Las validaciones de "ya existe" están en `catalogo/forms.py`. La base de datos 
 - Las contraseñas tienen que tener mínimo 10 caracteres y pasan los validadores de Django.
 - Login: 5 intentos fallidos bloquean al usuario durante 15 minutos (django-axes).
 - Hay dos niveles de permiso: **logueado** (`login_required` / `LoginRequiredMixin`) y **superusuario** (`is_superuser`). No usa grupos ni permisos de Django más finos.
-- Tests: `cuentas/tests.py` y `catalogo/tests.py`. Se corren con `docker compose exec web python manage.py test`.
+- Tests: un `tests.py` por app (más `productos/tests_web.py` para las pantallas). Se corren con `docker compose exec web python manage.py test`.
 
 ## Cómo agregar endpoints nuevos
 
 ### Páginas HTML (mismo patrón que lo actual)
 
 1. Creá una app nueva: `python manage.py startapp ventas` (por ejemplo) y agregala a `INSTALLED_APPS`.
-2. Escribí el modelo en `models.py` (copiá el estilo de `Producto` con `creado_por`/`actualizado_por`) y corré `makemigrations` + `migrate`.
+2. Escribí el modelo en `models.py` (copiá el estilo de `Producto`: `activo` en lugar de borrar, restricciones en `Meta`) y corré `makemigrations` + `migrate`.
 3. Armá los formularios en `forms.py` como `ModelForm` con sus `clean_*`.
-4. Escribí las vistas reutilizando `SoloAdministradorMixin` y `GuardadoSeguroMixin` desde `catalogo.views`. Si los vas a usar mucho, conviene moverlos a un módulo común.
+4. Escribí las vistas reutilizando `GuardadoSeguroMixin` desde `productos.vistas_web`. Si lo vas a usar mucho, conviene moverlo a un módulo común.
 5. Definí `urls.py` con su `app_name` y sumalo con `include()` en `config/urls.py`.
 6. Creá los templates en `templates/<app>/` extendiendo `base.html`.
 
 ### API JSON (para un frontend web o mobile)
 
 1. Sumá **Django REST Framework** (`djangorestframework`) a `requirements.in` y `requirements.txt`, y agregá `rest_framework` a `INSTALLED_APPS`.
-2. Escribí *serializers* y *ViewSets* sobre los mismos modelos (`Producto`, `Categoria`, `Usuario`).
+2. Escribí *serializers* y *ViewSets* sobre los mismos modelos (como `productos/serializers.py` y `productos/views.py`).
 3. Montalos bajo `/api/` en `config/urls.py`.
 4. Decidí la autenticación:
    - **Sesión:** sirve si el frontend está en el mismo dominio.
@@ -126,45 +132,45 @@ La idea general es la misma: los dos son frameworks MVC con ORM, migraciones, ru
 
 | Laravel | Django | En este proyecto |
 |---|---|---|
-| Proyecto (`app/`, `routes/`, `config/`) | Proyecto (`config/`) + varias **apps** | `config/` + `cuentas/`, `catalogo/`, `inicio/` |
-| Módulo/carpeta de dominio (o un paquete) | **App** de Django: modelos, vistas, urls y forms juntos | `catalogo/` |
-| `routes/web.php` | `urls.py` (uno raíz + uno por app) | `config/urls.py` → `include("catalogo.urls")` |
+| Proyecto (`app/`, `routes/`, `config/`) | Proyecto (`config/`) + varias **apps** | `config/` + `cuentas/`, `productos/`, `inicio/`, … |
+| Módulo/carpeta de dominio (o un paquete) | **App** de Django: modelos, vistas, urls y forms juntos | `productos/` |
+| `routes/web.php` | `urls.py` (uno raíz + uno por app) | `config/urls.py` → `include("productos.urls_web")` |
 | `Route::get(...)->name('x')` | `path(..., name="x")` | `name="lista"` |
-| `route('productos.index')` | `reverse("catalogo:lista")` / `{% url 'catalogo:lista' %}` | `app_name = "catalogo"` hace de prefijo |
-| `Route::prefix('catalogo')->group(...)` | `path("catalogo/", include(...))` | `config/urls.py` |
-| Controller | **View** (función o clase) | `catalogo/views.py` |
+| `route('productos.index')` | `reverse("productos:lista")` / `{% url 'productos:lista' %}` | `app_name = "productos"` hace de prefijo |
+| `Route::prefix('productos')->group(...)` | `path("productos/", include(...))` | `config/urls.py` |
+| Controller | **View** (función o clase) | `productos/vistas_web.py` |
 | `Route::resource` + resource controller | Vistas genéricas `ListView`, `DetailView`, `CreateView`, `UpdateView`, `DeleteView` | `ProductoListView`, etc. |
-| Blade (`resources/views/*.blade.php`) | Templates de Django (`templates/*.html`) | `templates/catalogo/lista.html` |
+| Blade (`resources/views/*.blade.php`) | Templates de Django (`templates/*.html`) | `templates/productos/lista.html` |
 | `@extends('layouts.app')` / `@section` / `@yield` | `{% extends "base.html" %}` / `{% block %}` | `templates/base.html` |
 | `@include('partials.x')` | `{% include "componentes/x.html" %}` | `templates/componentes/` |
 | `View::share` / View Composer | **Context processor** | `inicio/context_processors.py` |
-| Eloquent Model | Model del ORM de Django | `Producto`, `Categoria`, `Usuario` |
-| Migrations escritas a mano | Migrations **generadas** desde el modelo (`makemigrations`) | `catalogo/migrations/` |
+| Eloquent Model | Model del ORM de Django | `Producto`, `Diseno`, `Usuario` |
+| Migrations escritas a mano | Migrations **generadas** desde el modelo (`makemigrations`) | `productos/migrations/` |
 | `php artisan migrate` | `python manage.py migrate` | lo corre `compose.yaml` al arrancar |
 | `php artisan make:...` | `python manage.py startapp ...` | — |
 | `php artisan tinker` | `python manage.py shell` | — |
 | Artisan command | Management command | `inicio/management/commands/cargar_demo.py` |
 | Seeder | Management command o fixture | `cargar_demo` |
-| Form Request / `$request->validate()` | **Form** / **ModelForm** con `clean_<campo>()` | `catalogo/forms.py`, `cuentas/forms.py` |
+| Form Request / `$request->validate()` | **Form** / **ModelForm** con `clean_<campo>()` | `productos/forms.py`, `cuentas/forms.py` |
 | `@csrf` | `{% csrf_token %}` | en cada `<form>` |
 | Middleware (`app/Http/Middleware`, `Kernel`) | Middleware (`MIDDLEWARE` en settings) | `config/settings.py` |
 | `.env` + `config/*.php` | `.env` → `os.environ` en `settings.py` | `config/settings.py` |
 | Auth (Breeze/Fortify) | `django.contrib.auth` (LoginView, LogoutView) | `cuentas/views.py` |
 | `User` model | `AbstractUser` + `AUTH_USER_MODEL` | `cuentas.Usuario` |
-| Middleware `auth` | `@login_required` / `LoginRequiredMixin` | todas las vistas de catálogo |
-| Gate / Policy | `UserPassesTestMixin` / `PermissionDenied` | `SoloAdministradorMixin` |
+| Middleware `auth` | `@login_required` / `LoginRequiredMixin` | todas las vistas de productos |
+| Gate / Policy | `UserPassesTestMixin` / `PermissionDenied` | `cuentas/views.py` |
 | `abort(403)` | `raise PermissionDenied` | `cuentas/views.py` |
 | `findOrFail()` | `get_object_or_404()` | `cuentas/views.py` |
 | `DB::transaction()` | `transaction.atomic()` | `GuardadoSeguroMixin`, `services.py` |
 | `->lockForUpdate()` | `.select_for_update()` | `resolver_solicitud()` |
 | Clase de servicio (`app/Services`) | Módulo `services.py` (convención, no lo impone el framework) | `cuentas/services.py` |
-| Flash (`session()->flash`, `with('success')`) | `messages.success(request, ...)` | vistas de catálogo |
+| Flash (`session()->flash`, `with('success')`) | `messages.success(request, ...)` | vistas de productos |
 | `redirect()->route('x')` | `redirect("app:x")` | `cuentas/views.py` |
 | `response()->json()` | `JsonResponse` | `inicio/views.py → salud` |
 | Paginación `->paginate(12)` | `paginate_by = 12` | `ProductoListView` |
 | Laravel Nova / Filament | **Admin de Django** (ya viene incluido) | `cuentas/admin.py` |
-| PHPUnit / Pest (`php artisan test`) | `unittest` de Django (`manage.py test`) | `cuentas/tests.py`, `catalogo/tests.py` |
-| API Resources + Sanctum | **Django REST Framework** (serializers + ViewSets) + auth de DRF | no está; habría que agregarlo |
+| PHPUnit / Pest (`php artisan test`) | `unittest` de Django (`manage.py test`) | `cuentas/tests.py`, `productos/tests_web.py` |
+| API Resources + Sanctum | **Django REST Framework** (serializers + ViewSets) + auth de DRF | `*/serializers.py`, bajo `/api/` |
 | `composer.json` | `requirements.in` / `requirements.txt` | — |
 | PHP-FPM + Nginx | Gunicorn + Caddy | `Dockerfile`, `infra/Caddyfile` |
 
@@ -175,15 +181,15 @@ La idea general es la misma: los dos son frameworks MVC con ORM, migraciones, ru
 | `Producto::all()` | `Producto.objects.all()` |
 | `Producto::count()` | `Producto.objects.count()` |
 | `Producto::find($id)` | `Producto.objects.get(pk=id)` |
-| `Producto::where('nombre', 'like', "%$q%")->orWhere(...)` | `Producto.objects.filter(Q(nombre__icontains=q) \| Q(codigo__icontains=q))` |
-| `->with('categoria')` (eager loading) | `.select_related("categoria")` (FK) / `.prefetch_related()` (relaciones a muchos) |
-| `->orderByDesc('actualizado')->take(5)` | `.order_by("-actualizado")[:5]` |
+| `Producto::where('nombre', 'like', "%$q%")->orWhere(...)` | `Producto.objects.filter(Q(nombre__icontains=q) \| Q(tipo_abertura__icontains=q))` |
+| `->with('producto')` (eager loading) | `.select_related("producto")` (FK) / `.prefetch_related()` (relaciones a muchos) |
+| `->orderBy('stock')->take(5)` | `.order_by("stock")[:5]` |
 | `->where('id', '!=', $id)` | `.exclude(pk=id)` |
 | `->exists()` | `.exists()` |
-| `belongsTo(Categoria::class)` | `models.ForeignKey(Categoria, ...)` |
-| `hasMany` (se define del otro lado) | automático: `categoria.producto_set` o el `related_name` |
+| `belongsTo(Producto::class)` | `models.ForeignKey(Producto, ...)` |
+| `hasMany` (se define del otro lado) | automático: `producto.diseno_set` o el `related_name` (`producto.disenos`) |
 | `$fillable` / `$guarded` | `fields = (...)` en el `ModelForm` |
-| `$timestamps` (`created_at`, `updated_at`) | `auto_now_add=True` / `auto_now=True` (`creado`, `actualizado`) |
+| `$timestamps` (`created_at`, `updated_at`) | `auto_now_add=True` / `auto_now=True` (por ejemplo `Cliente.fecha_registro`) |
 | `->constrained()->restrictOnDelete()` | `on_delete=models.PROTECT` |
 
 **La diferencia más grande:** en Laravel escribís la migración y el modelo por separado. En Django **el modelo es la fuente de verdad**: declarás los campos en `models.py` y `makemigrations` genera la migración sola.
@@ -195,35 +201,28 @@ La idea general es la misma: los dos son frameworks MVC con ORM, migraciones, ru
 ```php
 // routes/web.php
 Route::middleware('auth')->group(function () {
-    Route::resource('catalogo', ProductoController::class);
+    Route::resource('productos', ProductoController::class);
 });
 
 // ProductoController@store
 public function store(StoreProductoRequest $request) {
-    $producto = Producto::create($request->validated() + [
-        'creado_por' => auth()->id(),
-        'actualizado_por' => auth()->id(),
-    ]);
-    return redirect()->route('catalogo.show', $producto)->with('success', 'Cambios guardados.');
+    $producto = Producto::create($request->validated());
+    return redirect()->route('productos.show', $producto)->with('success', 'Cambios guardados.');
 }
 ```
 
 En este proyecto (Django):
 
 ```python
-# catalogo/urls.py
-path("nuevo/", views.ProductoCreateView.as_view(), name="crear"),
+# productos/urls_web.py
+path("nuevo/", vistas_web.ProductoCreateView.as_view(), name="crear"),
 
-# catalogo/views.py
+# productos/vistas_web.py
 class ProductoCreateView(LoginRequiredMixin, GuardadoSeguroMixin, CreateView):
     model = Producto
     form_class = ProductoForm            # ≈ StoreProductoRequest
-    template_name = "catalogo/formulario.html"
-
-    def form_valid(self, form):          # se ejecuta cuando la validación pasó
-        form.instance.creado_por = self.request.user
-        form.instance.actualizado_por = self.request.user
-        return super().form_valid(form)  # guarda y redirige a get_absolute_url()
+    template_name = "productos/formulario.html"
+    # Al validar, guarda y redirige a get_absolute_url() del producto.
 ```
 
 `CreateView` hace en una sola clase lo que en Laravel son `create()` (mostrar el formulario) y `store()` (guardarlo): con GET muestra el formulario y con POST lo valida y guarda. Los **mixins** (`LoginRequiredMixin`, `GuardadoSeguroMixin`) son como **traits** de PHP que además cumplen el papel del middleware de la ruta.

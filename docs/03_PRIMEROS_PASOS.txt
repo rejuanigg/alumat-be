@@ -5,9 +5,9 @@ Usá únicamente datos ficticios mientras aprendés.
 
 1. Entrar como administrador
 
-Ingresá con la cuenta creada mediante createsuperuser. En Inicio verás el catálogo
-vacío. Creá una categoría desde Catálogo → Gestionar categorías → Agregar categoría.
-Después creá un producto con código, nombre, categoría, precio y stock.
+Ingresá con la cuenta creada mediante createsuperuser. En Inicio verás que todavía
+no hay productos. Desde Productos → Agregar producto, creá uno con nombre, tipo de
+abertura y stock. En su detalle, agregá al menos un diseño.
 
 Opcionalmente podés cargar ejemplos repetibles (reemplazá admin por tu usuario):
 
@@ -15,8 +15,8 @@ Opcionalmente podés cargar ejemplos repetibles (reemplazá admin por tu usuario
 docker compose exec web python manage.py cargar_demo --usuario admin
 
 
-Los códigos DEMO-001 a DEMO-003 identifican información ficticia. El comando no
-sobrescribe productos existentes. No ejecutarlo sobre datos reales del cliente.
+Carga tres productos de ejemplo (ventana, puerta y ventiluz) con sus diseños. El
+comando no sobrescribe productos existentes. No ejecutarlo sobre datos reales del cliente.
 
 2. Solicitar una cuenta
 
@@ -38,22 +38,18 @@ El panel Django Admin permite desactivar una cuenta ya aprobada desmarcando
 
 4. Comprobar el CRUD
 
-Con la cuenta del operador: ingresar, listar productos, buscar por código, crear uno,
-abrir su detalle y editarlo. El operador no puede eliminar ni administrar categorías.
-Con el administrador: abrir «Eliminar producto» y confirmar explícitamente.
-Visitar la pantalla de confirmación no borra nada. Una categoría con productos no
-puede borrarse; el sistema pide reasignarlos antes.
+Con la cuenta del operador: ingresar, listar productos, buscar por nombre o tipo de
+abertura, crear uno, abrir su detalle, agregarle un diseño y editarlo.
 
-El ejemplo usa eliminación física para enseñar el CRUD. Para procesos con trazabilidad
-(ventas, pagos, expedientes), diseñar estados de baja o anulación según las reglas
-confirmadas de la organización. No trasladar la eliminación de este ejemplo a esos
-procesos sin ese análisis.
+Los productos y diseños no se borran: se desactivan desmarcando «Activo» al editarlos,
+para conservar los pedidos anteriores. El stock se descuenta solo cuando un pedido
+pasa a producción y se devuelve si el pedido se cancela.
 
 5. Verificar errores y conservación
 
-- Un precio o stock negativos deben rechazarse.
-- Un código repetido debe mostrar un error sin duplicar el producto.
-- Un visitante sin sesión no debe abrir el catálogo ni escribir enviando una URL directa.
+- Un stock negativo debe rechazarse.
+- Un producto con el mismo nombre y tipo de abertura debe mostrar un error sin duplicarse.
+- Un visitante sin sesión no debe abrir los productos ni escribir enviando una URL directa.
 - Después de docker compose restart, deben seguir existiendo usuario y producto.
 - «Cerrar sesión» debe volver al ingreso e impedir abrir páginas protegidas.
 
@@ -77,5 +73,5 @@ Para ambas modalidades
 La tecnología es común. En presencial se acompaña con los entregables de arquitectura,
 Docker y sprints de la comisión. En semipresencial se prioriza el proceso central y
 el cronograma ajustado. El docente define las condiciones académicas; la plantilla
-no determina notas ni cambia el programa. El login y el catálogo son el punto de
+no determina notas ni cambia el programa. El login y los productos son el punto de
 partida: cada grupo debe desarrollar y defender sus propias historias de usuario.

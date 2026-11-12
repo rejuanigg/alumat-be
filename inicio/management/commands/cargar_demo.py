@@ -1,12 +1,21 @@
 from django.core.management.base import BaseCommand, CommandError
 from django.contrib.auth import get_user_model
 from django.db import transaction
-from catalogo.models import Categoria, Producto
+
+from productos.models import Diseno, Producto
+
+EJEMPLOS = [
+    # (nombre, tipo de abertura, stock, diseños)
+    ("Ventana", "Corrediza", 10, ["Dos hojas", "Tres hojas"]),
+    ("Puerta", "Batiente", 4, ["Una hoja", "Con paño fijo"]),
+    ("Ventiluz", "Banderola", 6, ["Simple"]),
+]
 
 
 class Command(BaseCommand):
     help = (
-        "Agrega ejemplos ficticios sin modificar registros existentes. No crea cuentas."
+        "Agrega productos y diseños de ejemplo sin modificar registros existentes. "
+        "No crea cuentas."
     )
 
     def add_arguments(self, parser):
@@ -16,30 +25,22 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
-        try:
-            usuario = get_user_model().objects.get(
-                username=options["usuario"], is_superuser=True, is_active=True
-            )
-        except get_user_model().DoesNotExist:
+        # Solo un administrador puede cargar ejemplos.
+        if not get_user_model().objects.filter(
+            username=options["usuario"], is_superuser=True, is_active=True
+        ).exists():
             raise CommandError("Primero creá un administrador con createsuperuser.")
-        for codigo, nombre, categoria, precio, stock in [
-            ("DEMO-001", "Cuaderno de tapa dura", "Librería", "8500.00", 20),
-            ("DEMO-002", "Lápiz de grafito", "Librería", "650.00", 80),
-            ("DEMO-003", "Botella reutilizable", "Accesorios", "12000.00", 8),
-        ]:
-            cat = Categoria.objects.filter(nombre__iexact=categoria).first()
-            if not cat:
-                cat = Categoria.objects.create(nombre=categoria)
-            if not Producto.objects.filter(codigo__iexact=codigo).exists():
-                Producto.objects.create(
-                    codigo=codigo,
-                    nombre=nombre,
-                    categoria=cat,
-                    precio=precio,
-                    stock=stock,
-                    creado_por=usuario,
-                    actualizado_por=usuario,
+        for nombre, tipo, stock, disenos in EJEMPLOS:
+            producto = Producto.objects.filter(
+                nombre__iexact=nombre, tipo_abertura__iexact=tipo
+            ).first()
+            if producto is None:
+                producto = Producto.objects.create(
+                    nombre=nombre, tipo_abertura=tipo, stock=stock
                 )
+            for nombre_diseno in disenos:
+                if not producto.disenos.filter(nombre_diseno__iexact=nombre_diseno).exists():
+                    Diseno.objects.create(producto=producto, nombre_diseno=nombre_diseno)
         self.stdout.write(
             self.style.SUCCESS(
                 "Ejemplos disponibles; los registros existentes se conservaron."

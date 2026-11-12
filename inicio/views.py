@@ -2,7 +2,7 @@ from django.contrib.auth.decorators import login_required
 from django.db import connection
 from django.http import JsonResponse
 from django.shortcuts import render
-from catalogo.models import Producto, Categoria
+from productos.models import Diseno, Producto
 from cuentas.models import Usuario
 
 
@@ -12,15 +12,16 @@ def home(request):
         request,
         "inicio/home.html",
         {
-            "productos": Producto.objects.count(),
-            "categorias": Categoria.objects.count(),
+            "productos": Producto.objects.filter(activo=True).count(),
+            "disenos": Diseno.objects.filter(activo=True, producto__activo=True).count(),
             "pendientes": (
                 Usuario.objects.filter(estado="pendiente").count()
                 if request.user.is_superuser
                 else None
             ),
-            "recientes": Producto.objects.select_related("categoria").order_by(
-                "-actualizado"
+            # Los productos activos con menos stock, para reponer a tiempo.
+            "menos_stock": Producto.objects.filter(activo=True).order_by(
+                "stock", "nombre"
             )[:5],
         },
     )

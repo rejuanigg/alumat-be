@@ -43,11 +43,11 @@ Operador
 aria-current="page"
 {% endif %}
 >Inicio</a>
-<a href="{% url 'catalogo:lista' %}"
-{% if request.resolver_match.app_name == 'catalogo' %}
+<a href="{% url 'productos:lista' %}"
+{% if request.resolver_match.app_name == 'productos' %}
 aria-current="page"
 {% endif %}
->Catálogo</a>
+>Productos</a>
 
 {% if user.is_superuser %}
 <a href="{% url 'cuentas:solicitudes' %}"

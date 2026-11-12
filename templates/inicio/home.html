@@ -12,16 +12,16 @@ Inicio
 <h1>Hola, {{ user.first_name|default:user.username }}.</h1>
 <p>Esta es la información de tu organización.</p>
 </div>
-<a class="boton" href="{% url 'catalogo:crear' %}">Agregar producto</a>
+<a class="boton" href="{% url 'productos:crear' %}">Agregar producto</a>
 </div>
 <div class="resumen">
-<a href="{% url 'catalogo:lista' %}">
-<span>Productos registrados</span>
+<a href="{% url 'productos:lista' %}">
+<span>Productos activos</span>
 <strong>{{ productos }}</strong>
 </a>
-<a href="{% url 'catalogo:categorias' %}">
-<span>Categorías</span>
-<strong>{{ categorias }}</strong>
+<a href="{% url 'productos:lista' %}">
+<span>Diseños activos</span>
+<strong>{{ disenos }}</strong>
 </a>
 {% if user.is_superuser %}
 <a href="{% url 'cuentas:solicitudes' %}">
@@ -31,27 +31,21 @@ Inicio
 {% endif %}
 </div>
 <div class="encabezado">
-<h2>Últimos productos actualizados</h2>
-<a href="{% url 'catalogo:lista' %}">Ver catálogo completo →</a>
+<h2>Productos con menos stock</h2>
+<a href="{% url 'productos:lista' %}">Ver todos los productos →</a>
 </div>
 <div class="lista-recientes">
-{% for producto in recientes %}
+{% for producto in menos_stock %}
 <a href="{{ producto.get_absolute_url }}">
 <span>
 <strong>{{ producto.nombre }}</strong>
-<small>{{ producto.categoria }} · {{ producto.codigo }}</small>
+<small>{{ producto.tipo_abertura }}</small>
 </span>
-<span>{{ producto.stock }} unidades</span>
+<span>{{ producto.stock }} abertura{{ producto.stock|pluralize:'s' }}</span>
 </a>{% empty %}<div class="vacio">
-<h2>El catálogo está listo para empezar</h2>
-<p>
-{% if user.is_superuser %}
-Creá una categoría y después agregá tu primer producto.
-{% else %}
-Pedile al administrador que cree las categorías para comenzar.
-{% endif %}
-</p>
-<a href="{% url 'catalogo:categorias' %}">Ir a categorías →</a>
+<h2>Todavía no hay productos</h2>
+<p>Agregá el primer producto y sus diseños para empezar a tomar pedidos.</p>
+<a href="{% url 'productos:crear' %}">Agregar producto →</a>
 </div>
 {% endfor %}
 </div>

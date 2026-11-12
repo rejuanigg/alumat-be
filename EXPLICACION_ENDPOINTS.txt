@@ -37,6 +37,7 @@ responde:
       "nombre": "Ventana corrediza",
       "tipo_abertura": "corrediza",
       "descripcion": "Ventana de aluminio de dos hojas corredizas.",
+      "stock": 10,
       "activo": true
     }
 
@@ -118,7 +119,7 @@ salen en el JSON. Ejemplo (productos/serializers.py):
       class Meta:
           model = Producto
           fields = ("id_producto", "nombre", "tipo_abertura",
-                    "descripcion", "activo")
+                    "descripcion", "stock", "activo")
 
 Con eso DRF ya sabe:
   - armar el JSON de respuesta;

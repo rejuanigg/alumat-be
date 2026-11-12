@@ -34,6 +34,9 @@ class Pedido(models.Model):
         max_length=20, choices=Estado.choices, default=Estado.PENDIENTE
     )
     observaciones = models.TextField(blank=True)
+    # Marca que el stock de este pedido ya se descontó, para no descontarlo
+    # dos veces. Solo la cambia pedidos/stock.py.
+    stock_descontado = models.BooleanField(default=False, editable=False)
 
     class Meta:
         ordering = ["-fecha_pedido", "-id_pedido"]
