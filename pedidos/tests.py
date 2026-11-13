@@ -1,5 +1,9 @@
-from django.db import IntegrityError, transaction
+from datetime import timedelta
+
+from django.db import transaction
 from django.test import TestCase, override_settings
+from django.urls import Resolver404, resolve
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from clientes.models import Cliente
@@ -7,11 +11,10 @@ from cuentas.models import Usuario
 from productos.models import Diseno, Producto
 
 from .models import DetallePedido, Pedido
-from .stock import sincronizar_stock
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)
-class StockTests(TestCase):
+class PedidoTests(TestCase):
     def setUp(self):
         self.usuario = Usuario.objects.create_user(
             "operador", "operador@example.test", "Temporal-segura-298!",
@@ -19,28 +22,17 @@ class StockTests(TestCase):
         )
         self.api = APIClient()
         self.api.force_authenticate(self.usuario)
-        self.ventana = Producto.objects.create(
-            nombre="Ventana", tipo_abertura="Corrediza", stock=10
-        )
-        self.puerta = Producto.objects.create(
-            nombre="Puerta", tipo_abertura="Batiente", stock=2
-        )
+        self.ventana = Producto.objects.create(nombre="Ventana", tipo_abertura="Corrediza")
+        self.diseno = Diseno.objects.create(producto=self.ventana, nombre_diseno="Base")
         cliente = Cliente.objects.create(
             tipo_cliente="particular", nombre="Ana", apellido="Pérez", dni="30123456",
             direccion="Calle 1", telefono="3875555555", correo_electronico="a@b.test",
         )
         self.pedido = Pedido.objects.create(cliente=cliente, usuario=self.usuario)
-        self.detalle(self.ventana, 3, ancho=1200)
-        self.detalle(self.ventana, 2, ancho=800)  # mismo producto, otras medidas
-        self.detalle(self.puerta, 1)
-
-    def detalle(self, producto, cantidad, ancho=1000):
         DetallePedido.objects.create(
-            pedido=self.pedido,
-            producto=producto,
-            diseno=Diseno.objects.get_or_create(producto=producto, nombre_diseno="Base")[0],
-            ancho=ancho, alto=1000, cantidad=cantidad,
-            tipo_vidrio="Float", color_aluminio="Blanco", tipo_revestimiento="Ninguno",
+            pedido=self.pedido, diseno=self.diseno,
+            ancho="1200.50", alto=1000, cantidad=3,
+            tipo_vidrio="dvh_4_9_4", color_aluminio="blanco",
         )
 
     def avanzar(self, estado):
@@ -48,76 +40,144 @@ class StockTests(TestCase):
             f"/api/pedidos/{self.pedido.pk}/", {"estado": estado}, format="json"
         )
 
-    def cancelar(self):
-        return self.api.post(f"/api/pedidos/{self.pedido.pk}/cancelar/")
-
-    def stock(self):
-        self.ventana.refresh_from_db()
-        self.puerta.refresh_from_db()
-        return self.ventana.stock, self.puerta.stock
-
-    def test_pendiente_no_descuenta(self):
-        self.assertEqual(self.stock(), (10, 2))
-
-    def test_descuenta_al_pasar_a_produccion_sin_importar_medidas(self):
-        r = self.avanzar("en_produccion")
+    def test_avanza_de_a_un_paso(self):
+        r = self.avanzar("en_proceso")
         self.assertEqual(r.status_code, 200, r.data)
-        self.assertEqual(self.stock(), (5, 1))
-
-    def test_no_descuenta_dos_veces(self):
-        self.avanzar("en_produccion")
-        self.avanzar("terminado")
-        self.avanzar("entregado")
-        self.assertEqual(self.stock(), (5, 1))
-        # Llamarlo de nuevo con el pedido ya descontado no cambia nada.
+        self.assertEqual(self.avanzar("finalizado").status_code, 200)
         self.pedido.refresh_from_db()
-        sincronizar_stock(self.pedido)
-        self.assertEqual(self.stock(), (5, 1))
+        self.assertEqual(self.pedido.estado, "finalizado")
 
-    def test_saltar_de_pendiente_a_entregado_tambien_descuenta(self):
-        self.assertEqual(self.avanzar("entregado").status_code, 200)
-        self.assertEqual(self.stock(), (5, 1))
+    def test_no_salta_estados(self):
+        r = self.avanzar("finalizado")
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("estado", r.data)
 
-    def test_cancelar_devuelve_lo_descontado(self):
-        self.avanzar("en_produccion")
-        self.assertEqual(self.cancelar().status_code, 200)
-        self.assertEqual(self.stock(), (10, 2))
-        self.pedido.refresh_from_db()
-        self.assertFalse(self.pedido.stock_descontado)
+    def test_no_retrocede(self):
+        self.avanzar("en_proceso")
+        self.assertEqual(self.avanzar("pendiente").status_code, 400)
 
-    def test_cancelar_pendiente_no_toca_el_stock(self):
-        self.assertEqual(self.cancelar().status_code, 200)
-        self.assertEqual(self.stock(), (10, 2))
-
-    def test_sin_stock_suficiente_rechaza_y_no_cambia_nada(self):
-        self.puerta.stock = 0
-        self.puerta.save()
-        r = self.avanzar("en_produccion")
+    def test_finalizado_no_admite_cambios(self):
+        self.avanzar("en_proceso")
+        self.avanzar("finalizado")
+        r = self.api.patch(
+            f"/api/pedidos/{self.pedido.pk}/", {"observaciones": "x"}, format="json"
+        )
         self.assertEqual(r.status_code, 409)
-        self.assertIn("Puerta: hay 0, se necesitan 1", r.data["detail"])
-        self.pedido.refresh_from_db()
-        self.assertEqual(self.pedido.estado, Pedido.Estado.PENDIENTE)
-        self.assertFalse(self.pedido.stock_descontado)
-        self.assertEqual(self.stock(), (10, 0))
+
+    def test_no_pendiente_solo_avanza_estado(self):
+        self.avanzar("en_proceso")
+        r = self.api.patch(
+            f"/api/pedidos/{self.pedido.pk}/", {"observaciones": "x"}, format="json"
+        )
+        self.assertEqual(r.status_code, 409)
+
+    def test_no_hay_cancelacion(self):
+        with self.assertRaises(Resolver404):
+            resolve(f"/api/pedidos/{self.pedido.pk}/cancelar/")
+        self.assertEqual(self.avanzar("cancelado").status_code, 400)
+
+    def test_fecha_con_hora_y_no_futura(self):
+        self.assertIsNotNone(self.pedido.fecha_pedido.hour)
+        futura = (timezone.now() + timedelta(hours=1)).isoformat()
+        r = self.api.patch(
+            f"/api/pedidos/{self.pedido.pk}/", {"fecha_pedido": futura}, format="json"
+        )
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("fecha_pedido", r.data)
+
+    def test_filtro_fecha_hasta_incluye_todo_el_dia(self):
+        hoy = timezone.localdate().isoformat()
+        r = self.api.get("/api/pedidos/", {"fecha_desde": hoy, "fecha_hasta": hoy})
+        self.assertEqual(len(r.data), 1)
+
+    def test_no_pendiente_no_admite_detalles_nuevos(self):
+        self.avanzar("en_proceso")
+        r = self.api.post(
+            f"/api/pedidos/{self.pedido.pk}/detalles/",
+            {
+                "id_diseno": self.diseno.pk, "ancho": 800, "alto": 800,
+                "color_aluminio": "blanco",
+            },
+            format="json",
+        )
+        self.assertEqual(r.status_code, 409)
 
     def test_pedido_desactualizado_da_409(self):
-        # Otro usuario lo canceló después de que este lo cargó.
-        Pedido.objects.filter(pk=self.pedido.pk).update(estado=Pedido.Estado.CANCELADO)
+        # Otro usuario lo cambió después de que este lo cargó.
+        Pedido.objects.filter(pk=self.pedido.pk).update(estado=Pedido.Estado.EN_PROCESO)
         from .views import PedidoViewSet
 
         with self.assertRaises(Exception) as error, transaction.atomic():
             PedidoViewSet().bloquear(self.pedido)
         self.assertEqual(error.exception.status_code, 409)
 
-    def test_stock_negativo_bloqueado_en_la_base(self):
-        with self.assertRaises(IntegrityError), transaction.atomic():
-            Producto.objects.filter(pk=self.puerta.pk).update(stock=-1)
 
-    def test_stock_visible_en_la_api_de_productos(self):
-        r = self.api.get(f"/api/productos/{self.ventana.pk}/")
-        self.assertEqual(r.data["stock"], 10)
-        r = self.api.patch(
-            f"/api/productos/{self.ventana.pk}/", {"stock": 25}, format="json"
+@override_settings(SECURE_SSL_REDIRECT=False)
+class DetallePedidoTests(TestCase):
+    def setUp(self):
+        usuario = Usuario.objects.create_user(
+            "operador", "operador@example.test", "Temporal-segura-298!",
+            estado="aprobado", is_active=True,
         )
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(self.stock()[0], 25)
+        self.api = APIClient()
+        self.api.force_authenticate(usuario)
+        self.producto = Producto.objects.create(nombre="Ventana", tipo_abertura="Corrediza")
+        self.diseno = Diseno.objects.create(producto=self.producto, nombre_diseno="Base")
+        cliente = Cliente.objects.create(
+            tipo_cliente="particular", nombre="Ana", apellido="Pérez", dni="30123456",
+        )
+        self.pedido = Pedido.objects.create(cliente=cliente, usuario=usuario)
+        self.url = f"/api/pedidos/{self.pedido.pk}/detalles/"
+        self.datos = {
+            "id_diseno": self.diseno.pk, "ancho": "1200.50", "alto": "1000",
+            "cantidad": 2, "tipo_vidrio": "dvh_4_9_4", "color_aluminio": "negro",
+        }
+
+    def post(self, datos):
+        return self.api.post(self.url, datos, format="json")
+
+    def test_alta_con_medidas_decimales_y_listas(self):
+        r = self.post(self.datos)
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["ancho"], "1200.50")
+        self.assertNotIn("id_producto", r.data)
+        self.assertEqual(r.data["tipo_revestimiento"], "")
+        detalle = DetallePedido.objects.get()
+        self.assertEqual(detalle.diseno.producto, self.producto)
+
+    def test_cantidad_por_defecto_es_uno(self):
+        datos = {**self.datos}
+        del datos["cantidad"]
+        r = self.post(datos)
+        self.assertEqual(r.status_code, 201, r.data)
+        self.assertEqual(r.data["cantidad"], 1)
+
+    def test_color_obligatorio(self):
+        datos = {**self.datos}
+        del datos["color_aluminio"]
+        self.assertIn("color_aluminio", self.post(datos).data)
+
+    def test_valores_fuera_de_las_listas(self):
+        r = self.post({**self.datos, "tipo_vidrio": "Float", "color_aluminio": "Rojo"})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual({"tipo_vidrio", "color_aluminio"}, set(r.data))
+        r = self.post({**self.datos, "tipo_revestimiento": "madera"})
+        self.assertIn("tipo_revestimiento", r.data)
+
+    def test_medidas_y_cantidad_positivas(self):
+        r = self.post({**self.datos, "ancho": "0", "alto": "-1", "cantidad": 0})
+        self.assertEqual({"ancho", "alto", "cantidad"}, set(r.data))
+
+    def test_detalle_repetido(self):
+        self.assertEqual(self.post(self.datos).status_code, 201)
+        r = self.post({**self.datos, "cantidad": 5})
+        self.assertEqual(r.status_code, 400)
+        r = self.post({**self.datos, "color_aluminio": "blanco"})
+        self.assertEqual(r.status_code, 201)
+
+    def test_producto_inactivo_del_diseno(self):
+        self.producto.activo = False
+        self.producto.save()
+        r = self.post(self.datos)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn("id_diseno", r.data)

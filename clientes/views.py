@@ -3,6 +3,8 @@ from rest_framework import mixins, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 
+from cuentas.permisos import PermisoPorRol
+
 from .models import Cliente
 from .serializers import ClienteSerializer
 
@@ -23,7 +25,7 @@ class ClienteViewSet(
     """No ofrece DELETE: un cliente se desactiva (activo=false) para conservar sus pedidos."""
 
     serializer_class = ClienteSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PermisoPorRol]
 
     def get_queryset(self):
         qs = Cliente.objects.all()

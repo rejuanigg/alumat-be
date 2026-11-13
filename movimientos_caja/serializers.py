@@ -117,10 +117,6 @@ class CierreCajaSerializer(serializers.ModelSerializer):
         validators = []
 
     def validate(self, attrs):
-        if self.instance is None:
-            exigir_apertura_abierta(attrs["apertura"])
-        elif attrs.get("apertura", self.instance.apertura) != self.instance.apertura:
-            raise serializers.ValidationError(
-                {"id_apertura": "La apertura de un cierre no se puede modificar."}
-            )
+        # Solo se registran cierres nuevos: el cierre es definitivo.
+        exigir_apertura_abierta(attrs["apertura"])
         return attrs

@@ -4,6 +4,9 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+from cuentas.permisos import PermisoPorRol
+
 from .models import Diseno, Producto
 from .serializers import DisenoSerializer, ProductoSerializer
 
@@ -30,7 +33,7 @@ class SinBorradoViewSet(
 ):
     """No ofrece DELETE: los registros se desactivan para conservar el historial."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PermisoPorRol]
 
     # El serializer avisa los repetidos con un 400 claro; si dos personas
     # guardan lo mismo a la vez, la base de datos rechaza el segundo.

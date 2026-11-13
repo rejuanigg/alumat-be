@@ -6,6 +6,8 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APITestCase
 
 from cajas.models import AperturaCaja, Caja
+from clientes.models import Cliente
+from pedidos.models import Pedido
 from ventas.models import Cobro, MetodoPago, Venta
 
 from .models import CierreCaja, MovimientoCaja, TipoMovimiento
@@ -31,7 +33,13 @@ class CajaTestCase(TestCase):
             usuario=self.usuario,
             monto_inicial=Decimal("1000"),
         )
-        self.venta = Venta.objects.create(importe_total=Decimal("500"))
+        cliente = Cliente.objects.create(
+            tipo_cliente="particular", nombre="Ana", apellido="Pérez", dni="30123456"
+        )
+        pedido = Pedido.objects.create(cliente=cliente, usuario=self.usuario)
+        self.venta = Venta.objects.create(
+            pedido=pedido, usuario=self.usuario, importe_total=Decimal("500")
+        )
 
     def movimiento(self, tipo, monto, **extra):
         return MovimientoCaja.objects.create(
@@ -46,6 +54,7 @@ class CajaTestCase(TestCase):
     def cobro(self, metodo, boleta):
         return Cobro.objects.create(
             venta=self.venta,
+            usuario=self.usuario,
             monto=Decimal("500"),
             tipo_cobro="total",
             metodo_pago=metodo,
@@ -104,6 +113,17 @@ class CajaTestCase(TestCase):
         with self.assertRaises(ValidationError):
             self.movimiento(TipoMovimiento.ENTRADA, "0")
 
+    def test_cierre_no_se_modifica_desde_codigo(self):
+        cierre = self.cerrar("1000")
+        cierre.efectivo_contado = Decimal("900")
+        with self.assertRaises(ValidationError):
+            cierre.save()
+
+    def test_valores_en_minusculas_y_tablas_del_der(self):
+        self.assertEqual(TipoMovimiento.values, ["entrada", "salida"])
+        self.assertEqual(MovimientoCaja._meta.db_table, "movimiento_cajas")
+        self.assertEqual(CierreCaja._meta.db_table, "cierre_cajas")
+
     def test_str_de_venta(self):
         self.assertEqual(str(self.venta), f"Venta #{self.venta.pk}")
 
@@ -137,7 +157,7 @@ class CajaApiTestCase(CajaTestCase, APITestCase):
     def test_movimiento_por_api_usa_nombres_id(self):
         r = self.post(
             "/api/movimiento-caja/",
-            {"id_apertura": self.apertura.pk, "tipo_movimiento": "ENTRADA",
+            {"id_apertura": self.apertura.pk, "tipo_movimiento": "entrada",
              "concepto": "venta", "monto": "100.00"},
         )
         self.assertEqual(r.status_code, 201, r.content)
@@ -149,7 +169,7 @@ class CajaApiTestCase(CajaTestCase, APITestCase):
         r = self.post(
             "/api/movimiento-caja/",
             {"id_apertura": self.apertura.pk, "id_cobro": cobro.pk,
-             "tipo_movimiento": "ENTRADA", "concepto": "cobro", "monto": "500.00"},
+             "tipo_movimiento": "entrada", "concepto": "cobro", "monto": "500.00"},
         )
         self.assertEqual(r.status_code, 400)
         self.assertIn("id_cobro", r.json())
@@ -162,7 +182,7 @@ class CajaApiTestCase(CajaTestCase, APITestCase):
         self.assertEqual(self.post("/api/cierre-caja/", datos).status_code, 409)
         r = self.post(
             "/api/movimiento-caja/",
-            {"id_apertura": self.apertura.pk, "tipo_movimiento": "ENTRADA",
+            {"id_apertura": self.apertura.pk, "tipo_movimiento": "entrada",
              "concepto": "tarde", "monto": "1.00"},
         )
         self.assertEqual(r.status_code, 409)
@@ -177,29 +197,32 @@ class CajaApiTestCase(CajaTestCase, APITestCase):
     def test_cobro_repetido_por_api_da_400(self):
         cobro = self.cobro(MetodoPago.EFECTIVO, "B-5")
         datos = {"id_apertura": self.apertura.pk, "id_cobro": cobro.pk,
-                 "tipo_movimiento": "ENTRADA", "concepto": "cobro", "monto": "500.00"}
+                 "tipo_movimiento": "entrada", "concepto": "cobro", "monto": "500.00"}
         self.assertEqual(self.post("/api/movimiento-caja/", datos).status_code, 201)
         r = self.post("/api/movimiento-caja/", datos)
         self.assertEqual(r.status_code, 400)
         self.assertIn("id_cobro", r.json())
 
-    def test_cierre_se_corrige_pero_nada_se_borra(self):
+    def test_cierre_es_definitivo_y_nada_se_borra(self):
         cierre = self.cerrar("1000")
         url = f"/api/cierre-caja/{cierre.pk}/"
         self.assertEqual(self.client.delete(url).status_code, 405)
-        r = self.client.patch(url, {"efectivo_contado": "990"}, format="json")
-        self.assertEqual(r.status_code, 200, r.content)
-        self.assertEqual(r.json()["diferencia"], "-10.00")
+        self.assertEqual(
+            self.client.patch(url, {"efectivo_contado": "990"}, format="json").status_code, 405
+        )
+        self.assertEqual(
+            self.client.put(url, {"efectivo_contado": "990"}, format="json").status_code, 405
+        )
+        cierre.refresh_from_db()
+        self.assertEqual(cierre.efectivo_contado, Decimal("1000"))
         otra = AperturaCaja.objects.create(
             caja=Caja.objects.create(nombre_caja="Otra"),
             usuario=self.usuario,
             monto_inicial=Decimal("0"),
         )
-        r = self.client.patch(url, {"id_apertura": otra.pk}, format="json")
-        self.assertEqual(r.status_code, 400)
         movimiento = self.post(
             "/api/movimiento-caja/",
-            {"id_apertura": otra.pk, "tipo_movimiento": "ENTRADA",
+            {"id_apertura": otra.pk, "tipo_movimiento": "entrada",
              "concepto": "x", "monto": "1.00"},
         ).json()
         url = f"/api/movimiento-caja/{movimiento['id_movimiento']}/"

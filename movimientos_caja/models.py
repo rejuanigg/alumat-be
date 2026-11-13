@@ -9,8 +9,8 @@ from django.utils import timezone
 
 
 class TipoMovimiento(models.TextChoices):
-    ENTRADA = "ENTRADA", "Entrada"
-    SALIDA = "SALIDA", "Salida"
+    ENTRADA = "entrada", "Entrada"
+    SALIDA = "salida", "Salida"
 
 
 class MovimientoCaja(models.Model):
@@ -38,7 +38,7 @@ class MovimientoCaja(models.Model):
     )
     fecha_movimiento = models.DateTimeField(default=timezone.now)
     tipo_movimiento = models.CharField(max_length=10, choices=TipoMovimiento.choices)
-    concepto = models.CharField(max_length=255)
+    concepto = models.CharField(max_length=200)  # E076
     monto = models.DecimalField(
         max_digits=12,
         decimal_places=2,
@@ -46,7 +46,7 @@ class MovimientoCaja(models.Model):
     )
 
     class Meta:
-        db_table = "MOVIMIENTO_CAJAS"
+        db_table = "movimiento_cajas"
         verbose_name = "Movimiento de Caja"
         verbose_name_plural = "Movimientos de Caja"
         ordering = ["-fecha_movimiento", "-id_movimiento"]
@@ -127,7 +127,7 @@ class CierreCaja(models.Model):
     diferencia = models.DecimalField(max_digits=12, decimal_places=2)
 
     class Meta:
-        db_table = "CIERRE_CAJAS"
+        db_table = "cierre_cajas"
         verbose_name = "Cierre de Caja"
         verbose_name_plural = "Cierres de Caja"
         ordering = ["-fecha_hora_cierre", "-id_cierre"]
@@ -154,9 +154,8 @@ class CierreCaja(models.Model):
 
     def save(self, *args, **kwargs):
         if self.pk is not None:
-            # Si se corrige el efectivo contado, la diferencia tiene que acompañar.
-            self.diferencia = self.efectivo_contado - self.saldo_esperado
-            return super().save(*args, **kwargs)
+            # El cierre es definitivo.
+            raise ValidationError("Un cierre de caja no se puede modificar.")
 
         from cajas.models import AperturaCaja
 

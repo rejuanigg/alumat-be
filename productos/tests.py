@@ -123,8 +123,8 @@ class ValidacionesApiTests(TestCase):
         self.assertEqual(self.post("/api/clientes/", empresa).status_code, 400)
         empresa["cuit"] = "20123456786"
         self.assertEqual(self.post("/api/clientes/", empresa).status_code, 201)
-        # El CUIT se guarda solo con dígitos.
-        self.assertEqual(Cliente.objects.get().cuit, "20123456786")
+        # El CUIT se guarda con el formato del diccionario.
+        self.assertEqual(Cliente.objects.get().cuit, "20-12345678-6")
         empresa["cuit"] = "20-12345678-6"
         r = self.post("/api/clientes/", empresa)
         self.assertEqual(r.status_code, 400)
@@ -148,18 +148,16 @@ class ValidacionesApiTests(TestCase):
     def test_detalle_repetido_en_el_mismo_pedido(self):
         pedido = Pedido.objects.create(cliente=self.crear_cliente(), usuario=self.usuario)
         detalle = {
-            "id_producto": self.producto.pk,
             "id_diseno": self.diseno.pk,
             "ancho": 1200,
             "alto": 1000,
             "cantidad": 1,
-            "tipo_vidrio": "Float 4mm",
-            "color_aluminio": "Blanco",
-            "tipo_revestimiento": "Ninguno",
+            "tipo_vidrio": "simple_4",
+            "color_aluminio": "blanco",
         }
         url = f"/api/pedidos/{pedido.pk}/detalles/"
         self.assertEqual(self.post(url, detalle).status_code, 201)
-        r = self.post(url, {**detalle, "color_aluminio": "BLANCO", "cantidad": 3})
+        r = self.post(url, {**detalle, "cantidad": 3})
         self.assertEqual(r.status_code, 400)
         r = self.post(url, {**detalle, "ancho": 1500})
         self.assertEqual(r.status_code, 201)
@@ -171,9 +169,8 @@ class ValidacionesApiTests(TestCase):
         r = self.post(
             f"/api/pedidos/{pedido.pk}/detalles/",
             {
-                "id_producto": self.producto.pk, "id_diseno": self.diseno.pk,
-                "ancho": 1, "alto": 1, "cantidad": 1, "tipo_vidrio": "a",
-                "color_aluminio": "b", "tipo_revestimiento": "c",
+                "id_diseno": self.diseno.pk,
+                "ancho": 1, "alto": 1, "cantidad": 1, "color_aluminio": "blanco",
             },
         )
         self.assertEqual(r.status_code, 400)
@@ -195,23 +192,26 @@ class ValidacionesApiTests(TestCase):
         )
         movimiento = {
             "id_apertura": apertura.pk,
-            "tipo_movimiento": "ENTRADA",
+            "tipo_movimiento": "entrada",
             "concepto": "Venta",
             "monto": "0",
         }
         r = self.post("/api/movimiento-caja/", movimiento)
         self.assertIn("monto", r.data)
 
-        venta = Venta.objects.create(importe_total=50)
+        pedido = Pedido.objects.create(cliente=self.crear_cliente(), usuario=self.usuario)
+        venta = Venta.objects.create(pedido=pedido, usuario=self.usuario, importe_total=50)
         tarjeta = Cobro.objects.create(
-            venta=venta, monto=50, tipo_cobro="total", metodo_pago=Cobro.MetodoPago.TARJETA_DEBITO,
+            venta=venta, usuario=self.usuario, monto=50, tipo_cobro="total",
+            metodo_pago=Cobro.MetodoPago.TARJETA_DEBITO,
             numero_boleta="B-1",
         )
         r = self.post("/api/movimiento-caja/", {**movimiento, "monto": "50", "id_cobro": tarjeta.pk})
         self.assertIn("id_cobro", r.data)
 
         efectivo = Cobro.objects.create(
-            venta=venta, monto=50, tipo_cobro="total", metodo_pago=Cobro.MetodoPago.EFECTIVO,
+            venta=venta, usuario=self.usuario, monto=50, tipo_cobro="total",
+            metodo_pago=Cobro.MetodoPago.EFECTIVO,
             numero_boleta="B-2",
         )
         con_cobro = {**movimiento, "monto": "50", "id_cobro": efectivo.pk}
@@ -228,12 +228,13 @@ class ValidacionesApiTests(TestCase):
         # Cerrar otra vez una apertura cerrada: 409 (el estado no lo permite).
         self.assertEqual(self.post("/api/cierre-caja/", cierre).status_code, 409)
 
+        # El cierre es definitivo: no se corrige.
         r = self.api.patch(
             f"/api/cierre-caja/{r.data['id_cierre']}/", {"efectivo_contado": "150"},
             format="json",
         )
-        self.assertEqual(r.data["diferencia"], "0.00")
-        self.assertEqual(CierreCaja.objects.count(), 1)
+        self.assertEqual(r.status_code, 405)
+        self.assertEqual(CierreCaja.objects.get().diferencia, -10)
 
         r = self.post("/api/movimiento-caja/", {**movimiento, "monto": "5"})
         self.assertEqual(r.status_code, 409)

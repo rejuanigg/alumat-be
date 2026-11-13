@@ -31,6 +31,8 @@ class ClienteSerializer(serializers.ModelSerializer):
 
     def validate_telefono(self, telefono):
         telefono = telefono.strip()
+        if not telefono:
+            return ""  # el teléfono es opcional
         if not re.fullmatch(r"\+?[\d\s()-]+", telefono) or len(re.sub(r"\D", "", telefono)) < 6:
             raise serializers.ValidationError(
                 "Ingresá un teléfono válido (números, espacios, guiones o +)."

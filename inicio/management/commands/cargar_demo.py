@@ -5,10 +5,10 @@ from django.db import transaction
 from productos.models import Diseno, Producto
 
 EJEMPLOS = [
-    # (nombre, tipo de abertura, stock, diseños)
-    ("Ventana", "Corrediza", 10, ["Dos hojas", "Tres hojas"]),
-    ("Puerta", "Batiente", 4, ["Una hoja", "Con paño fijo"]),
-    ("Ventiluz", "Banderola", 6, ["Simple"]),
+    # (nombre, tipo de abertura, diseños)
+    ("Ventana", "Corrediza", ["Dos hojas", "Tres hojas"]),
+    ("Puerta", "Batiente", ["Una hoja", "Con paño fijo"]),
+    ("Ventiluz", "Banderola", ["Simple"]),
 ]
 
 
@@ -30,14 +30,12 @@ class Command(BaseCommand):
             username=options["usuario"], is_superuser=True, is_active=True
         ).exists():
             raise CommandError("Primero creá un administrador con createsuperuser.")
-        for nombre, tipo, stock, disenos in EJEMPLOS:
+        for nombre, tipo, disenos in EJEMPLOS:
             producto = Producto.objects.filter(
                 nombre__iexact=nombre, tipo_abertura__iexact=tipo
             ).first()
             if producto is None:
-                producto = Producto.objects.create(
-                    nombre=nombre, tipo_abertura=tipo, stock=stock
-                )
+                producto = Producto.objects.create(nombre=nombre, tipo_abertura=tipo)
             for nombre_diseno in disenos:
                 if not producto.disenos.filter(nombre_diseno__iexact=nombre_diseno).exists():
                     Diseno.objects.create(producto=producto, nombre_diseno=nombre_diseno)

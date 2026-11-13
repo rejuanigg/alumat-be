@@ -10,6 +10,11 @@ def solo_digitos(valor):
     return re.sub(r"[\s.\-]", "", valor or "")
 
 
+def formatear_cuit(cuit):
+    """"20123456786" -> "20-12345678-6" (formato XX-XXXXXXXX-X del diccionario)."""
+    return f"{cuit[:2]}-{cuit[2:10]}-{cuit[10]}"
+
+
 def cuit_valido(cuit):
     """Controla el dígito verificador de un CUIT/CUIL de 11 dígitos."""
     pesos = (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)
@@ -60,19 +65,16 @@ class Cliente(models.Model):
         blank=True
     )
 
-    # Se guarda solo con dígitos (11), sin guiones.
+    # Se guarda con el formato del diccionario: XX-XXXXXXXX-X (13 caracteres).
     cuit = models.CharField(
         max_length=13,
         blank=True
     )
 
-    direccion = models.CharField(max_length=200)
-
-    telefono = models.CharField(max_length=30)
-
-    correo_electronico = models.EmailField(
-        max_length=150
-    )
+    # Dirección, teléfono y correo son opcionales (diccionario E008, E009, E010).
+    direccion = models.CharField(max_length=200, blank=True)
+    telefono = models.CharField(max_length=30, blank=True)
+    correo_electronico = models.EmailField(max_length=150, blank=True)
 
     # Se desactiva en lugar de borrar para conservar los pedidos.
     activo = models.BooleanField(default=True)
@@ -82,6 +84,9 @@ class Cliente(models.Model):
     )
 
     class Meta:
+        db_table = "clientes"
+        verbose_name = "cliente"
+        verbose_name_plural = "clientes"
         ordering = ["id_cliente"]
         constraints = [
             # Vacío no cuenta como repetido: las empresas no tienen DNI.
@@ -159,6 +164,8 @@ class Cliente(models.Model):
                 errores["cuit"] = "El CUIT debe tener 11 dígitos."
             elif self.cuit and not cuit_valido(self.cuit):
                 errores["cuit"] = "El CUIT no es válido (dígito verificador)."
+            elif self.cuit:
+                self.cuit = formatear_cuit(self.cuit)
 
         else:
             # tipo_cliente inválido: ya lo informa la validación del campo.

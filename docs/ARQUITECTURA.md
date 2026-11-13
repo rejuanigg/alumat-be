@@ -14,13 +14,13 @@
 ```
 config/            → settings.py y urls.py raíz (el "cableado" general)
 cuentas/           → usuarios, registro, login y aprobación de cuentas
-productos/         → productos (aberturas), diseños y stock: pantallas web y API
+productos/         → productos (aberturas) y diseños: pantallas web y API
 clientes/          → clientes particulares y empresas (API)
-pedidos/           → pedidos y sus detalles; descuenta y devuelve stock (API)
+pedidos/           → pedidos y sus detalles (API)
 cajas/             → cajas y aperturas (API)
 movimientos_caja/  → movimientos y cierres de caja (API)
-ventas/            → ventas y cobros
-inicio/            → dashboard (home) y healthcheck
+ventas/            → ventas y cobros; services.py registra los cobros
+inicio/            → dashboard (home), healthcheck y comandos (cargar_demo, crear_roles)
 templates/         → HTML de las pantallas web
 ```
 
@@ -61,20 +61,25 @@ URLs raíz en `config/urls.py`:
 | `solicitudes/` | `solicitudes` | superusuario |
 | `solicitudes/<pk>/resolver/` | `resolver` (solo POST) | superusuario |
 
-## App `productos`: aberturas, diseños y stock
+## App `productos`: aberturas y diseños
 
-**Modelos** (`productos/models.py`):
+**Modelos** (`productos/models.py`, tablas `productos` y `disenos`):
 
-- `Producto`: `nombre`, `tipo_abertura`, `descripcion`, `stock` (≥0) y `activo`. El nombre no se repite dentro del mismo tipo de abertura (sin importar mayúsculas).
+- `Producto`: `nombre`, `tipo_abertura`, `descripcion` y `activo`. El nombre no se repite dentro del mismo tipo de abertura (sin importar mayúsculas).
 - `Diseno`: pertenece a un producto (`PROTECT`); su nombre no se repite dentro del producto.
 - No se borran: se desactivan (`activo=False`) para conservar los pedidos anteriores.
+- El stock y el inventario quedan fuera del alcance del documento.
 
-**Stock** (`pedidos/stock.py`): la unidad es la abertura, sin importar sus medidas.
+## App `pedidos`: pedidos y detalles
 
-- Se descuenta la suma de `cantidad` de los detalles cuando el pedido deja de estar pendiente (pasa a producción, o directo a terminado/entregado).
-- Si el pedido se cancela, se devuelve lo descontado.
-- Si no alcanza el stock de algún producto, la API responde 409 y el pedido no cambia de estado.
-- `Pedido.stock_descontado` evita descontar dos veces; la fila del pedido se bloquea con `select_for_update` mientras se cambia el estado.
+- `Pedido` (tabla `pedidos`): `fecha_pedido` con fecha y hora; estados `pendiente` → `en_proceso` → `finalizado`, solo hacia adelante y de a un paso. No hay cancelación. Solo un pedido pendiente admite cambios en sus datos y detalles (409 si no).
+- `DetallePedido` (tabla `detalle_pedidos`): referencia un `Diseno`; el producto se obtiene a través del diseño. Medidas decimales y listas predefinidas para vidrio, color de aluminio y revestimiento. Ver `docs/CONTRATO_API_PEDIDOS.md`.
+
+## App `ventas`: ventas y cobros
+
+- `Venta` (tabla `ventas`): una por pedido (`id_pedido` UNIQUE), con el usuario que la registró e `importe_total` > 0. Calcula `total_cobrado` y `saldo_pendiente`.
+- `Cobro` (tabla `cobros`): `tipo_cobro` `parcial` o `total`; el monto no puede superar el saldo, un cobro total cubre todo el saldo y uno parcial no; `numero_boleta` es único.
+- **`ventas/services.py → registrar_cobro()`** es la única vía para dar de alta un cobro: corre en una transacción, bloquea la venta con `select_for_update` para no cobrar dos veces el mismo saldo y, si el cobro es en efectivo, exige una apertura de caja abierta y registra automáticamente el movimiento de Entrada en esa caja. En el admin, los cobros son de solo lectura.
 
 **Pantallas web** (`productos/vistas_web.py`, `productos/urls_web.py`): *class-based views* genéricas de Django. `GuardadoSeguroMixin` guarda dentro de una transacción y, si hay un `IntegrityError` (por ejemplo un duplicado), muestra un error en el formulario en vez de un 500.
 
@@ -88,10 +93,11 @@ La API (`/api/productos/`, `/api/disenos/`) usa los mismos modelos: ver `docs/CO
 
 ## App `inicio`
 
-- `/`: `home` muestra contadores de productos y diseños activos, los 5 productos con menos stock y, si sos admin, las solicitudes pendientes.
+- `/`: `home` muestra contadores de productos y diseños activos y, si sos admin, las solicitudes pendientes.
 - `/salud/`: healthcheck en JSON que hace un `SELECT 1`. Lo usa Docker en producción.
 - `context_processors.organizacion` agrega `SITE_NAME` a todos los templates.
 - `inicio/management/commands/cargar_demo.py` carga datos de ejemplo (`python manage.py cargar_demo`).
+- `inicio/management/commands/crear_roles.py` crea los grupos `Vendedor` y `Dueño` (`python manage.py crear_roles`); se puede correr varias veces sin duplicar nada.
 
 ## Seguridad y permisos
 
@@ -99,7 +105,8 @@ La API (`/api/productos/`, `/api/disenos/`) usa los mismos modelos: ver `docs/CO
 - En producción usa cookies seguras y redirección a SSL.
 - Las contraseñas tienen que tener mínimo 10 caracteres y pasan los validadores de Django.
 - Login: 5 intentos fallidos bloquean al usuario durante 15 minutos (django-axes).
-- Hay dos niveles de permiso: **logueado** (`login_required` / `LoginRequiredMixin`) y **superusuario** (`is_superuser`). No usa grupos ni permisos de Django más finos.
+- Hay dos niveles de acceso: **logueado** (`login_required` / `LoginRequiredMixin`) y **superusuario** (`is_superuser`).
+- **Roles del documento** (`cuentas/permisos.py`): el **Administrador** es el superusuario; el **Vendedor** y el **Dueño** son grupos de Django. Todos los ViewSets usan `[IsAuthenticated, PermisoPorRol]`: Administrador y Vendedor operan, y el Dueño solo consulta (los `POST`, `PUT` y `PATCH` le responden 403). En las pantallas web, el Dueño no puede entrar a crear ni editar productos o diseños (403). Un superusuario nunca se trata como Dueño.
 - Tests: un `tests.py` por app (más `productos/tests_web.py` para las pantallas). Se corren con `docker compose exec web python manage.py test`.
 
 ## Cómo agregar endpoints nuevos
@@ -158,12 +165,12 @@ La idea general es la misma: los dos son frameworks MVC con ORM, migraciones, ru
 | Auth (Breeze/Fortify) | `django.contrib.auth` (LoginView, LogoutView) | `cuentas/views.py` |
 | `User` model | `AbstractUser` + `AUTH_USER_MODEL` | `cuentas.Usuario` |
 | Middleware `auth` | `@login_required` / `LoginRequiredMixin` | todas las vistas de productos |
-| Gate / Policy | `UserPassesTestMixin` / `PermissionDenied` | `cuentas/views.py` |
+| Gate / Policy | `UserPassesTestMixin` / `PermissionDenied` / permisos de DRF | `cuentas/views.py`, `cuentas/permisos.py` |
 | `abort(403)` | `raise PermissionDenied` | `cuentas/views.py` |
 | `findOrFail()` | `get_object_or_404()` | `cuentas/views.py` |
 | `DB::transaction()` | `transaction.atomic()` | `GuardadoSeguroMixin`, `services.py` |
 | `->lockForUpdate()` | `.select_for_update()` | `resolver_solicitud()` |
-| Clase de servicio (`app/Services`) | Módulo `services.py` (convención, no lo impone el framework) | `cuentas/services.py` |
+| Clase de servicio (`app/Services`) | Módulo `services.py` (convención, no lo impone el framework) | `cuentas/services.py`, `ventas/services.py` |
 | Flash (`session()->flash`, `with('success')`) | `messages.success(request, ...)` | vistas de productos |
 | `redirect()->route('x')` | `redirect("app:x")` | `cuentas/views.py` |
 | `response()->json()` | `JsonResponse` | `inicio/views.py → salud` |
@@ -183,7 +190,7 @@ La idea general es la misma: los dos son frameworks MVC con ORM, migraciones, ru
 | `Producto::find($id)` | `Producto.objects.get(pk=id)` |
 | `Producto::where('nombre', 'like', "%$q%")->orWhere(...)` | `Producto.objects.filter(Q(nombre__icontains=q) \| Q(tipo_abertura__icontains=q))` |
 | `->with('producto')` (eager loading) | `.select_related("producto")` (FK) / `.prefetch_related()` (relaciones a muchos) |
-| `->orderBy('stock')->take(5)` | `.order_by("stock")[:5]` |
+| `->orderBy('nombre')->take(5)` | `.order_by("nombre")[:5]` |
 | `->where('id', '!=', $id)` | `.exclude(pk=id)` |
 | `->exists()` | `.exists()` |
 | `belongsTo(Producto::class)` | `models.ForeignKey(Producto, ...)` |
