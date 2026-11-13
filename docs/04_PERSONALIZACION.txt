@@ -74,7 +74,7 @@ docker compose exec web python manage.py startapp pedidos
 
 Implementá modelos, formularios, vistas, pantallas y pruebas siguiendo el recorrido
 anterior. Reutilizá base.html y el componente de formularios. No copies el login.
-No calcules stock o totales únicamente en JavaScript: deben validarse en el servidor.
+No calcules totales ni saldos únicamente en JavaScript: deben validarse en el servidor.
 Las operaciones de varios registros que deben completarse juntas usan transacciones.
 
 Reglas prácticas del código

@@ -4,6 +4,9 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import APIException
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+
+from cuentas.permisos import PermisoPorRol
+
 from .models import AperturaCaja, Caja
 from .serializers import AperturaCajaSerializer, CajaSerializer
 
@@ -24,7 +27,7 @@ class CajaViewSet(
     """No ofrece DELETE: una caja se desactiva para conservar su historial."""
 
     serializer_class = CajaSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PermisoPorRol]
 
     def get_queryset(self):
         qs = Caja.objects.all()
@@ -63,7 +66,7 @@ class AperturaCajaViewSet(
     únicamente con POST /api/cierre-caja/, que registra el efectivo contado."""
 
     serializer_class = AperturaCajaSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PermisoPorRol]
 
     def get_queryset(self):
         qs = AperturaCaja.objects.all()

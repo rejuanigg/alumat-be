@@ -44,7 +44,7 @@ class ClienteApiTests(APITestCase):
     def test_crea_empresa_y_normaliza_cuit(self):
         r = self.crear(EMPRESA)
         self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
-        self.assertEqual(r.data["cuit"], "20123456786")
+        self.assertEqual(r.data["cuit"], "20-12345678-6")
 
     def test_empresa_sin_cuit_ni_razon_social(self):
         r = self.crear({**BASE, "tipo_cliente": "empresa"})
@@ -111,6 +111,13 @@ class ClienteApiTests(APITestCase):
     def test_correo_en_minusculas(self):
         r = self.crear({**PARTICULAR, "correo_electronico": "Ana@Example.COM"})
         self.assertEqual(r.data["correo_electronico"], "ana@example.com")
+
+    def test_sin_datos_de_contacto(self):
+        r = self.crear({"tipo_cliente": "particular", "nombre": "Luis", "apellido": "Gómez", "dni": "28111222"})
+        self.assertEqual(r.status_code, status.HTTP_201_CREATED, r.data)
+
+    def test_tabla_se_llama_clientes(self):
+        self.assertEqual(Cliente._meta.db_table, "clientes")
 
     def test_str(self):
         self.assertEqual(str(Cliente(tipo_cliente="particular", nombre="Ana", apellido="Pérez")), "Ana Pérez")

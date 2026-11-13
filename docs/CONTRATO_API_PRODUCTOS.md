@@ -8,6 +8,7 @@ Sección del contrato de API de ALUMAT correspondiente al Proceso 2: Gestión de
 - **Formato:** JSON (`Content-Type: application/json`), con codificación UTF-8.
 - **Nombres de campos:** iguales a los del diccionario de datos (`id_producto`, `id_diseno`, etc.).
 - **Autenticación:** todos los endpoints requieren un usuario autenticado. Se usa la sesión de Django (el mismo login del sitio). Si no hay sesión válida, se responde `403` con `{"detail": "Las credenciales de autenticación no se proveyeron."}`.
+- **Roles:** el Administrador (superusuario) y el Vendedor consultan y modifican; el Dueño solo consulta (`GET`). Si el Dueño intenta `POST`, `PUT` o `PATCH`, se responde `403` con `{"detail": "El Dueño solo puede consultar información."}`.
 - **Sin borrado físico:** productos y diseños no se eliminan, se desactivan con `activo: false` para conservar el historial. Por eso no existe `DELETE`; si se usa, la API responde `405 Method Not Allowed`.
 - **Fuera de alcance:** no hay atributos ni endpoints de stock, precio ni inventario.
 
@@ -18,15 +19,12 @@ Sección del contrato de API de ALUMAT correspondiente al Proceso 2: Gestión de
 | Atributo | Tipo | Restricciones |
 |---|---|---|
 | `id_producto` | entero | **PK**, autoincremental, solo lectura |
-| `nombre` | texto (máx. 120) | obligatorio |
-| `tipo_abertura` | texto (máx. 80) | obligatorio |
+| `nombre` | texto (máx. 100) | obligatorio |
+| `tipo_abertura` | texto (máx. 100) | obligatorio |
 | `descripcion` | texto | opcional (por defecto `""`) |
-| `stock` | entero ≥ 0 | por defecto `0`; cantidad de aberturas disponibles, sin importar sus medidas |
 | `activo` | booleano | por defecto `true` |
 
-FK: ninguna.
-
-El stock lo descuentan los pedidos al pasar a producción y lo devuelven si se cancelan (ver `CONTRATO_API_PEDIDOS.md`). Para reponer mercadería se edita con `PATCH {"stock": 25}`.
+FK: ninguna. Tabla: `productos`.
 
 ### DISEÑO
 
@@ -34,8 +32,10 @@ El stock lo descuentan los pedidos al pasar a producción y lo devuelven si se c
 |---|---|---|
 | `id_diseno` | entero | **PK**, autoincremental, solo lectura |
 | `id_producto` | entero | **FK → PRODUCTO**, obligatorio, no se puede modificar después de crearlo |
-| `nombre_diseno` | texto (máx. 120) | obligatorio |
+| `nombre_diseno` | texto (máx. 100) | obligatorio |
 | `activo` | booleano | por defecto `true` |
+
+Tabla: `disenos`.
 
 **Relación:** un PRODUCTO tiene muchos DISEÑOS (1:N), y cada DISEÑO pertenece a un único PRODUCTO.
 
@@ -105,7 +105,7 @@ Cuerpo:
 
 #### `PUT` / `PATCH /api/productos/{id_producto}/`
 
-Campos editables: `nombre`, `tipo_abertura`, `descripcion`, `stock` y `activo`. `id_producto` es de solo lectura.
+Campos editables: `nombre`, `tipo_abertura`, `descripcion` y `activo`. `id_producto` es de solo lectura.
 
 Desactivar:
 
@@ -176,7 +176,6 @@ Registro devuelto por `GET /api/productos/1/`:
   "nombre": "Ventana corrediza",
   "tipo_abertura": "corrediza",
   "descripcion": "Ventana de aluminio de dos hojas corredizas.",
-  "stock": 10,
   "activo": true
 }
 ```
@@ -220,7 +219,7 @@ Registro devuelto por `GET /api/disenos/3/`. Su `id_producto` apunta al producto
 | Código | Cuándo |
 |---|---|
 | `400 Bad Request` | datos inválidos |
-| `403 Forbidden` | sin autenticación, o el usuario no tiene permiso para la operación |
+| `403 Forbidden` | sin autenticación, o el usuario no tiene permiso para la operación (por ejemplo, el Dueño intentando modificar) |
 | `404 Not Found` | el producto o diseño no existe |
 | `405 Method Not Allowed` | se intenta `DELETE` |
 
@@ -242,7 +241,6 @@ Formato de los demás errores:
 
 ## Decisiones a confirmar con el equipo
 
-- **Permisos de escritura:** quién puede registrar, modificar y desactivar (¿cualquier usuario aprobado o solo el administrador?).
 - **Diseños de un producto inactivo:** ¿se permite registrar diseños nuevos en un producto desactivado? ¿Al desactivar un producto se desactivan también sus diseños, o quedan como están?
 - **`tipo_abertura`:** hoy es texto libre. Si va a tener valores fijos (corrediza, batiente, etc.), hay que listarlos en el contrato.
 - **Paginación:** si los listados se paginan, definir el formato (por ejemplo `count`, `next`, `previous`, `results`).

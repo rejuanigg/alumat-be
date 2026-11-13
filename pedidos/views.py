@@ -2,13 +2,13 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 from rest_framework import mixins, viewsets
-from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
+
+from cuentas.permisos import PermisoPorRol
+
 from .models import DetallePedido, Pedido
 from .serializers import Conflicto, DetallePedidoSerializer, PedidoSerializer
-from .stock import sincronizar_stock
 
 
 class PedidoViewSet(
@@ -18,10 +18,10 @@ class PedidoViewSet(
     mixins.UpdateModelMixin,
     viewsets.GenericViewSet,
 ):
-    """No ofrece DELETE: un pedido se cancela para conservar el historial."""
+    """No ofrece DELETE: los pedidos se conservan como historial."""
 
     serializer_class = PedidoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PermisoPorRol]
 
     def get_queryset(self):
         qs = Pedido.objects.all()
@@ -38,7 +38,8 @@ class PedidoViewSet(
                 fecha = parse_date(params[parametro])
                 if fecha is None:
                     raise ValidationError({parametro: "Usá el formato AAAA-MM-DD."})
-                qs = qs.filter(**{f"fecha_pedido__{filtro}": fecha})
+                # fecha_pedido tiene hora: se compara solo su día.
+                qs = qs.filter(**{f"fecha_pedido__date__{filtro}": fecha})
         return qs
 
     def perform_create(self, serializer):
@@ -50,35 +51,19 @@ class PedidoViewSet(
         actual = Pedido.objects.select_for_update().get(pk=pedido.pk)
         if actual.estado != pedido.estado:
             raise Conflicto("El pedido cambió mientras lo editabas. Volvé a cargarlo.")
-        pedido.stock_descontado = actual.stock_descontado
         return pedido
 
     def perform_update(self, serializer):
         with transaction.atomic():
             self.bloquear(serializer.instance)
-            # Al dejar de estar pendiente se descuenta el stock; si no alcanza,
-            # Conflicto deshace también el cambio de estado.
-            sincronizar_stock(serializer.save())
-
-    @action(detail=True, methods=["post"])
-    def cancelar(self, request, pk=None):
-        pedido = self.get_object()
-        if pedido.estado in (Pedido.Estado.CANCELADO, Pedido.Estado.ENTREGADO):
-            raise Conflicto(f"Un pedido {pedido.estado} no se puede cancelar.")
-        with transaction.atomic():
-            self.bloquear(pedido)
-            pedido.estado = Pedido.Estado.CANCELADO
-            pedido.save(update_fields=["estado"])
-            # Devuelve lo que se había descontado, si correspondía.
-            sincronizar_stock(pedido)
-        return Response(PedidoSerializer(pedido).data)
+            serializer.save()
 
 
 class DetallePedidoViewSet(viewsets.ModelViewSet):
     """Los detalles se gestionan siempre dentro de su pedido."""
 
     serializer_class = DetallePedidoSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PermisoPorRol]
 
     def get_pedido(self):
         if not hasattr(self, "_pedido"):

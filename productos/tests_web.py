@@ -27,13 +27,12 @@ class ProductosWebTests(TestCase):
             estado="aprobado", is_active=True,
         )
         self.producto = Producto.objects.create(
-            nombre="Ventana", tipo_abertura="Corrediza", stock=3
+            nombre="Ventana", tipo_abertura="Corrediza"
         )
         self.data = {
             "nombre": "Puerta",
             "tipo_abertura": "Batiente",
             "descripcion": "Texto",
-            "stock": 5,
             "activo": "on",
         }
 
@@ -54,24 +53,22 @@ class ProductosWebTests(TestCase):
         self.client.force_login(self.operador)
         self.client.post(reverse("productos:crear"), self.data)
         puerta = Producto.objects.get(nombre="Puerta")
-        self.assertEqual(puerta.stock, 5)
+        self.assertEqual(puerta.descripcion, "Texto")
         self.assertContains(self.client.get(puerta.get_absolute_url()), "Batiente")
         # Desactivar en lugar de borrar.
-        datos = {**self.data, "stock": 7}
+        datos = {**self.data, "descripcion": "Otra"}
         del datos["activo"]
         self.client.post(reverse("productos:editar", args=[puerta.pk]), datos)
         puerta.refresh_from_db()
-        self.assertEqual((puerta.stock, puerta.activo), (7, False))
+        self.assertEqual((puerta.descripcion, puerta.activo), ("Otra", False))
 
-    def test_repetido_y_stock_negativo(self):
+    def test_repetido(self):
         self.client.force_login(self.operador)
         r = self.client.post(
             reverse("productos:crear"),
             {**self.data, "nombre": " VENTANA ", "tipo_abertura": "corrediza"},
         )
         self.assertContains(r, "Ya existe un producto con ese nombre y tipo de abertura")
-        r = self.client.post(reverse("productos:crear"), {**self.data, "stock": -1})
-        self.assertIn("stock", r.context["form"].errors)
         self.assertEqual(Producto.objects.count(), 1)
 
     def test_disenos(self):
@@ -111,12 +108,12 @@ class ProductosWebTests(TestCase):
         self.assertEqual(len(self.client.get(lista).context["object_list"]), 12)
         self.assertEqual(len(self.client.get(lista, {"page": 2}).context["object_list"]), 2)
 
-    def test_inicio_muestra_productos_con_menos_stock(self):
-        Producto.objects.create(nombre="Ventiluz", tipo_abertura="Banderola", stock=0)
+    def test_inicio_cuenta_productos_activos(self):
+        Producto.objects.create(nombre="Ventiluz", tipo_abertura="Banderola")
+        Producto.objects.create(nombre="Vieja", tipo_abertura="Fija", activo=False)
         self.client.force_login(self.operador)
         r = self.client.get(reverse("inicio:home"))
         self.assertEqual(r.context["productos"], 2)
-        self.assertEqual([p.nombre for p in r.context["menos_stock"]], ["Ventiluz", "Ventana"])
 
     def test_csrf_impide_modificacion(self):
         client = Client(enforce_csrf_checks=True)
@@ -126,12 +123,12 @@ class ProductosWebTests(TestCase):
     def test_demo_repetible_sin_sobrescribir(self):
         call_command("cargar_demo", usuario="admin", verbosity=0)
         ventana = Producto.objects.get(nombre="Ventana")
-        ventana.stock = 999
+        ventana.descripcion = "Editada a mano"
         ventana.save()
         cantidades = (Producto.objects.count(), Diseno.objects.count())
         call_command("cargar_demo", usuario="admin", verbosity=0)
         ventana.refresh_from_db()
-        self.assertEqual(ventana.stock, 999)
+        self.assertEqual(ventana.descripcion, "Editada a mano")
         self.assertEqual((Producto.objects.count(), Diseno.objects.count()), cantidades)
 
     def test_salud_y_pagina_inexistente(self):

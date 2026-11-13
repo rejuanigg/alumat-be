@@ -2,13 +2,25 @@
 
 from django.contrib import messages
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import PermissionDenied
 from django.db import IntegrityError, transaction
 from django.db.models import Count, Q
 from django.shortcuts import get_object_or_404
 from django.views.generic import CreateView, DetailView, ListView, UpdateView
 
+from cuentas.permisos import es_dueno
+
 from .forms import DisenoForm, ProductoForm
 from .models import Diseno, Producto
+
+
+class SinDuenoMixin:
+    """El Dueño solo consulta: no entra a las pantallas de alta ni de edición (403)."""
+
+    def dispatch(self, request, *args, **kwargs):
+        if request.user.is_authenticated and es_dueno(request.user):
+            raise PermissionDenied("El Dueño solo puede consultar información.")
+        return super().dispatch(request, *args, **kwargs)
 
 
 class GuardadoSeguroMixin:
@@ -47,19 +59,19 @@ class ProductoDetailView(LoginRequiredMixin, DetailView):
     template_name = "productos/detalle.html"
 
 
-class ProductoCreateView(LoginRequiredMixin, GuardadoSeguroMixin, CreateView):
+class ProductoCreateView(LoginRequiredMixin, SinDuenoMixin, GuardadoSeguroMixin, CreateView):
     model = Producto
     form_class = ProductoForm
     template_name = "productos/formulario.html"
 
 
-class ProductoUpdateView(LoginRequiredMixin, GuardadoSeguroMixin, UpdateView):
+class ProductoUpdateView(LoginRequiredMixin, SinDuenoMixin, GuardadoSeguroMixin, UpdateView):
     model = Producto
     form_class = ProductoForm
     template_name = "productos/formulario.html"
 
 
-class DisenoCreateView(LoginRequiredMixin, GuardadoSeguroMixin, CreateView):
+class DisenoCreateView(LoginRequiredMixin, SinDuenoMixin, GuardadoSeguroMixin, CreateView):
     model = Diseno
     form_class = DisenoForm
     template_name = "productos/diseno_form.html"
@@ -84,7 +96,7 @@ class DisenoCreateView(LoginRequiredMixin, GuardadoSeguroMixin, CreateView):
         return self.producto.get_absolute_url()
 
 
-class DisenoUpdateView(LoginRequiredMixin, GuardadoSeguroMixin, UpdateView):
+class DisenoUpdateView(LoginRequiredMixin, SinDuenoMixin, GuardadoSeguroMixin, UpdateView):
     model = Diseno
     form_class = DisenoForm
     template_name = "productos/diseno_form.html"

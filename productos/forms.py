@@ -6,9 +6,8 @@ from .models import Diseno, Producto
 class ProductoForm(forms.ModelForm):
     class Meta:
         model = Producto
-        fields = ("nombre", "tipo_abertura", "descripcion", "stock", "activo")
+        fields = ("nombre", "tipo_abertura", "descripcion", "activo")
         labels = {"activo": "Activo (disponible para nuevos pedidos)"}
-        help_texts = {"stock": "Cantidad de aberturas disponibles, sin importar sus medidas."}
         widgets = {"descripcion": forms.Textarea(attrs={"rows": 4})}
 
 

@@ -5,7 +5,7 @@ from .models import Diseno, Producto
 class ProductoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Producto
-        fields = ("id_producto", "nombre", "tipo_abertura", "descripcion", "stock", "activo")
+        fields = ("id_producto", "nombre", "tipo_abertura", "descripcion", "activo")
 
     def validate(self, attrs):
         # Se compara sin mayúsculas: "Ventana" y "VENTANA" son el mismo producto.

@@ -19,10 +19,6 @@ def home(request):
                 if request.user.is_superuser
                 else None
             ),
-            # Los productos activos con menos stock, para reponer a tiempo.
-            "menos_stock": Producto.objects.filter(activo=True).order_by(
-                "stock", "nombre"
-            )[:5],
         },
     )
 

@@ -3,6 +3,8 @@ from django.db import IntegrityError, transaction
 from rest_framework import mixins, viewsets
 from rest_framework.permissions import IsAuthenticated
 
+from cuentas.permisos import PermisoPorRol
+
 from .models import CierreCaja, MovimientoCaja
 from .serializers import (
     CierreCajaSerializer,
@@ -20,7 +22,7 @@ class SoloRegistrarYConsultar(
 ):
     """Sin PUT, PATCH ni DELETE: los movimientos y cierres son historial de caja."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, PermisoPorRol]
     mensaje_conflicto = "La operación no está permitida en el estado actual."
 
     def perform_create(self, serializer):
@@ -41,8 +43,8 @@ class MovimientoCajaViewSet(SoloRegistrarYConsultar):
     serializer_class = MovimientoCajaSerializer
 
 
-class CierreCajaViewSet(mixins.UpdateModelMixin, SoloRegistrarYConsultar):
-    """Un cierre admite corregir el efectivo contado; no se borra."""
+class CierreCajaViewSet(SoloRegistrarYConsultar):
+    """El cierre es definitivo: no se modifica ni se borra (PUT/PATCH/DELETE dan 405)."""
 
     queryset = CierreCaja.objects.all()
     serializer_class = CierreCajaSerializer

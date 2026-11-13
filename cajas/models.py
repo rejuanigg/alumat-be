@@ -9,11 +9,12 @@ from django.utils import timezone
 
 class Caja(models.Model):
     id_caja = models.BigAutoField(primary_key=True)
-    nombre_caja = models.CharField("nombre de la caja", max_length=80)
+    nombre_caja = models.CharField("nombre de la caja", max_length=100)  # E062
     # Se desactiva en lugar de borrar para conservar el historial.
     activa = models.BooleanField(default=True)
 
     class Meta:
+        db_table = "cajas"
         ordering = ["nombre_caja", "id_caja"]
         constraints = [
             models.UniqueConstraint(
@@ -60,6 +61,7 @@ class AperturaCaja(models.Model):
     # on_delete=models.PROTECT para impedir borrar aperturas con registros.
 
     class Meta:
+        db_table = "apertura_cajas"
         verbose_name = "apertura de caja"
         verbose_name_plural = "aperturas de caja"
         ordering = ["-fecha_hora_apertura", "-id_apertura"]

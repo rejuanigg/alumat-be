@@ -2,15 +2,14 @@ from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.exceptions import APIException
 from clientes.models import Cliente
-from productos.models import Diseno, Producto
+from productos.models import Diseno
 from .models import DetallePedido, Pedido
 
-# Orden en que avanza un pedido. "cancelado" tiene su propio endpoint.
+# Orden en que avanza un pedido (E026): solo hacia adelante y de a un paso.
 AVANCE = [
     Pedido.Estado.PENDIENTE,
-    Pedido.Estado.EN_PRODUCCION,
-    Pedido.Estado.TERMINADO,
-    Pedido.Estado.ENTREGADO,
+    Pedido.Estado.EN_PROCESO,
+    Pedido.Estado.FINALIZADO,
 ]
 
 
@@ -48,18 +47,11 @@ class PedidoSerializer(serializers.ModelSerializer):
         return cliente
 
     def validate_fecha_pedido(self, fecha):
-        if fecha > timezone.localdate():
+        if fecha > timezone.now():
             raise serializers.ValidationError(
-                "La fecha del pedido no puede ser posterior a hoy."
+                "La fecha del pedido no puede ser posterior a este momento."
             )
         return fecha
-
-    def validate_estado(self, estado):
-        if estado == Pedido.Estado.CANCELADO:
-            raise serializers.ValidationError(
-                "Para cancelar usá POST /api/pedidos/{id_pedido}/cancelar/."
-            )
-        return estado
 
     def validate(self, attrs):
         if self.instance is None:
@@ -68,11 +60,16 @@ class PedidoSerializer(serializers.ModelSerializer):
             return attrs
         actual = self.instance.estado
         nuevo = attrs.get("estado", actual)
-        if actual in (Pedido.Estado.CANCELADO, Pedido.Estado.ENTREGADO):
-            raise Conflicto(f"Un pedido {actual} no admite cambios.")
-        if AVANCE.index(nuevo) < AVANCE.index(actual):
+        if actual == Pedido.Estado.FINALIZADO:
+            raise Conflicto("Un pedido finalizado no admite cambios.")
+        paso = AVANCE.index(nuevo) - AVANCE.index(actual)
+        if paso < 0:
             raise serializers.ValidationError(
                 {"estado": "El estado de un pedido no puede retroceder."}
+            )
+        if paso > 1:
+            raise serializers.ValidationError(
+                {"estado": "El estado avanza de a un paso: pendiente → en proceso → finalizado."}
             )
         otros_cambios = any(
             getattr(self.instance, campo) != valor
@@ -88,11 +85,6 @@ class PedidoSerializer(serializers.ModelSerializer):
 
 class DetallePedidoSerializer(serializers.ModelSerializer):
     id_pedido = serializers.PrimaryKeyRelatedField(source="pedido", read_only=True)
-    id_producto = serializers.PrimaryKeyRelatedField(
-        source="producto",
-        queryset=Producto.objects.all(),
-        error_messages={"does_not_exist": "El producto indicado no existe."},
-    )
     id_diseno = serializers.PrimaryKeyRelatedField(
         source="diseno",
         queryset=Diseno.objects.all(),
@@ -104,7 +96,6 @@ class DetallePedidoSerializer(serializers.ModelSerializer):
         fields = (
             "id_detalle_pedido",
             "id_pedido",
-            "id_producto",
             "id_diseno",
             "ancho",
             "alto",
@@ -119,24 +110,16 @@ class DetallePedidoSerializer(serializers.ModelSerializer):
         def valor(campo):
             return attrs.get(campo, getattr(self.instance, campo, None))
 
-        producto = valor("producto")
         diseno = valor("diseno")
-        if producto and diseno and diseno.producto_id != producto.pk:
-            raise serializers.ValidationError(
-                {"id_diseno": "El diseño elegido no corresponde al producto."}
-            )
-        # Un producto o diseño desactivado no se puede agregar a un pedido.
-        errores = {}
-        if "producto" in attrs and not producto.activo and (
-            self.instance is None or producto != self.instance.producto
-        ):
-            errores["id_producto"] = "El producto está inactivo."
-        if "diseno" in attrs and not diseno.activo and (
-            self.instance is None or diseno != self.instance.diseno
-        ):
-            errores["id_diseno"] = "El diseño está inactivo."
-        if errores:
-            raise serializers.ValidationError(errores)
+        # Un diseño desactivado, o de un producto desactivado, no se puede
+        # agregar a un pedido. El producto se obtiene a través del diseño.
+        if "diseno" in attrs and (self.instance is None or diseno != self.instance.diseno):
+            if not diseno.activo:
+                raise serializers.ValidationError({"id_diseno": "El diseño está inactivo."})
+            if not diseno.producto.activo:
+                raise serializers.ValidationError(
+                    {"id_diseno": "El producto de este diseño está inactivo."}
+                )
 
         # Dos renglones idénticos en el mismo pedido se cargan como uno solo
         # con más cantidad.
@@ -144,13 +127,12 @@ class DetallePedidoSerializer(serializers.ModelSerializer):
         if pedido is not None:
             iguales = DetallePedido.objects.filter(
                 pedido=pedido,
-                producto=producto,
                 diseno=diseno,
                 ancho=valor("ancho"),
                 alto=valor("alto"),
-                tipo_vidrio__iexact=valor("tipo_vidrio"),
-                color_aluminio__iexact=valor("color_aluminio"),
-                tipo_revestimiento__iexact=valor("tipo_revestimiento"),
+                tipo_vidrio=valor("tipo_vidrio") or "",
+                color_aluminio=valor("color_aluminio"),
+                tipo_revestimiento=valor("tipo_revestimiento") or "",
             )
             if self.instance is not None:
                 iguales = iguales.exclude(pk=self.instance.pk)
